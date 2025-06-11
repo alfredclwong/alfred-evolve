@@ -15,21 +15,20 @@ def main():
         diff_generator_config=DiffGeneratorConfig(),
         evaluator_pool_config=EvaluatorConfig(),
         program_database_config=ProgramDatabaseConfig(
+            url="sqlite:///data/programs.db",
             n_islands=3,
-            initial_program=Program(island_id=0),
+            initial_program_content="",
             n_inspirations=2,
         ),
     )
 
     alfred_evolve = AlfredEvolve(config)
-    completed_iterations, programs, results = alfred_evolve.run(num_iterations=10)
+    completed_iterations, programs, results = alfred_evolve.run(num_iterations=100)
     print(f"Completed {completed_iterations} iterations.")
 
     print("Programs:")
-    for island_id, island_programs in programs.items():
-        print(f"Island {island_id}:")
-        for program in island_programs:
-            print(f"  {program}")
+    for program in programs:
+        print(program)
 
 
 if __name__ == "__main__":

@@ -14,39 +14,52 @@ from alfred_evolve.prompt.sampler import PromptSampler, PromptSamplerConfig
 
 @ray.remote
 class ProgramDatabaseActor:
-    def __init__(self, program_database: ProgramDatabase):
-        self.program_database = program_database
+    def __init__(self, program_database_config: ProgramDatabaseConfig):
+        self.program_database = ProgramDatabase(program_database_config)
 
     def sample(self):
         return self.program_database.sample()
 
-    def add(self, program: Program, result):
-        self.program_database.add(program, result)
+    def add_program(
+        self,
+        parent_id: int,
+        inspiration_ids: list[int],
+        prompt: Prompt,
+        diff: Diff,
+        result: Result,
+    ):
+        self.program_database.add_program(
+            parent_id=parent_id,
+            inspiration_ids=inspiration_ids,
+            prompt=prompt,
+            diff=diff,
+            result=result,
+        )
 
     def get_programs(self):
-        return self.program_database.programs
+        return self.program_database.get_programs()
 
     def get_results(self):
-        return self.program_database.results
+        return self.program_database.get_results()
 
 
 @ray.remote
 def build_prompt(
     prompt_sampler: PromptSampler, parent: Program, inspirations: list[Program]
 ) -> Prompt:
-    time.sleep(random.uniform(0, .1))
+    time.sleep(random.uniform(0, 0.1))
     return prompt_sampler.build(parent, inspirations)
 
 
 @ray.remote
 def generate_diff(diff_generator: DiffGenerator, prompt: Prompt) -> Diff:
-    time.sleep(random.uniform(0, .5))
+    time.sleep(random.uniform(0, 0.5))
     return diff_generator.generate(prompt)
 
 
 @ray.remote
 def evaluate_program(evaluator: Evaluator, program: Program) -> Result:
-    time.sleep(random.uniform(0, .5))
+    time.sleep(random.uniform(0, 0.5))
     return evaluator.evaluate(program)
 
 
@@ -69,12 +82,12 @@ class AlfredEvolve:
     3. Evaluating the generated programs.
     4. Storing the results in a program database.
     It manages the concurrency of these tasks using Ray's remote functions and queues."""
+
     def __init__(self, cfg: Config):
         self.cfg = cfg
 
         # The program database is wrapped in a Ray actor to ensure single-threaded access
-        program_database = ProgramDatabase(cfg.program_database_config)
-        self.program_database_actor = ProgramDatabaseActor.remote(program_database)
+        self.program_database_actor = ProgramDatabaseActor.remote(cfg.program_database_config)
 
         # The other components will be passed to Ray remote functions for parallel processing
         self.prompt_sampler = PromptSampler(cfg.prompt_sampler_config)
@@ -134,11 +147,12 @@ class AlfredEvolve:
             build_future = build_prompt.remote(
                 self.prompt_sampler, parent, inspirations
             )
+            inspiration_ids = [insp.program_id for insp in inspirations]
             task_id = id(build_future)
             self.build_tasks[task_id] = {
                 "future": build_future,
                 "parent": parent,
-                "inspirations": inspirations,
+                "inspiration_ids": inspiration_ids,
             }
 
     def _process_build_completions(self):
@@ -150,13 +164,8 @@ class AlfredEvolve:
 
             if ready:
                 prompt = ray.get(future)
-                parent = task_info["parent"]
-                self.generate_queue.put(
-                    {
-                        "prompt": prompt,
-                        "parent": parent,
-                    }
-                )
+                del task_info["future"]
+                self.generate_queue.put({"prompt": prompt, **task_info})
                 completed_tasks.append(task_id)
 
         for task_id in completed_tasks:
@@ -171,9 +180,8 @@ class AlfredEvolve:
 
             if ready:
                 diff: Diff = ray.get(future)
-                parent = task_info["parent"]
-                child = Program(parent.island_id, parent, diff)
-                self.evaluate_queue.put({"child": child})
+                del task_info["future"]
+                self.evaluate_queue.put({"diff": diff, **task_info})
                 completed_tasks.append(task_id)
 
         for task_id in completed_tasks:
@@ -189,8 +197,13 @@ class AlfredEvolve:
 
             if ready:
                 result = ray.get(future)
-                child = task_info["child"]
-                ray.get(self.program_database_actor.add.remote(child, result))
+                ray.get(self.program_database_actor.add_program.remote(
+                    task_info["parent"].program_id,
+                    task_info["inspiration_ids"],
+                    task_info["prompt"],
+                    task_info["diff"],
+                    result,
+                ))
                 completed_tasks.append(task_id)
                 completed_count += 1
 
@@ -221,7 +234,7 @@ class AlfredEvolve:
             task_id = id(generate_future)
             self.generate_tasks[task_id] = {
                 "future": generate_future,
-                "parent": item["parent"],
+                **item,
             }
 
         while (
@@ -229,11 +242,12 @@ class AlfredEvolve:
             and self.evaluate_queue
         ):
             item = self.evaluate_queue.get()
-            evaluate_future = evaluate_program.remote(self.evaluator, item["child"])
+            child = item["diff"].apply(item["parent"])
+            evaluate_future = evaluate_program.remote(self.evaluator, child)
             task_id = id(evaluate_future)
             self.evaluate_tasks[task_id] = {
                 "future": evaluate_future,
-                "child": item["child"],
+                **item,
             }
 
     def _wait_for_remaining_tasks(self):

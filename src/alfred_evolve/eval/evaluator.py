@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import random
 
 from alfred_evolve.primitive import Program, Result
 
@@ -13,4 +14,4 @@ class Evaluator:
         self.cfg = cfg
 
     def evaluate(self, program: Program) -> Result:
-        return Result()
+        return Result({"score": random.uniform(0, 1)})

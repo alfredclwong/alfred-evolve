@@ -1,23 +1,37 @@
+from abc import ABC
 from typing import Optional
 
+from alfred_evolve.util import apply_diff
 
-class Program:
-    def __init__(self, island_id: int, parent: Optional["Program"] = None, diff: Optional["Diff"] = None):
-        self.island_id = island_id
-        self.parent = parent
-        self.diff = diff
+
+class Primitive(ABC):
+    def __init__(self, content: str | dict[str, float]):
+        self.content = content
 
     def __repr__(self):
-        return f"Program(island_id={self.island_id}, parent={self.parent}, diff={self.diff})"
+        content = self.content
+        return f"{self.__class__.__name__}({content=})"
 
 
-class Prompt:
-    pass
+class Program(Primitive):
+    content: str
+
+    def __init__(self, content: str, program_id: Optional[int], result: Optional["Result"] = None):
+        super().__init__(content)
+        self.program_id = program_id
+        self.result = result
 
 
-class Diff:
-    pass
+class Prompt(Primitive):
+    content: str
 
 
-class Result:
-    pass
+class Diff(Primitive):
+    content: str
+
+    def apply(self, program: Program) -> Program:
+        return Program(apply_diff(program.content, self.content), None)
+
+
+class Result(Primitive):
+    content: dict[str, float]
