@@ -1,15 +1,12 @@
-from dataclasses import dataclass
 import random
-
-from alfred_evolve.primitive import Diff, Prompt
-
+from dataclasses import dataclass
 
 MOCK_DIFFS = [
-    Diff("diff1\n"),
-    Diff("diff2\n"),
-    Diff("diff3\n"),
-    Diff("diff4\n"),
-    Diff("diff5\n"),
+    "diff1\n",
+    "diff2\n",
+    "diff3\n",
+    "diff4\n",
+    "diff5\n",
 ]
 
 
@@ -22,5 +19,5 @@ class DiffGenerator:
     def __init__(self, cfg: DiffGeneratorConfig):
         self.cfg = cfg
 
-    def generate(self, prompt: Prompt) -> Diff:
+    def generate(self, prompt: str) -> str:
         return random.choice(MOCK_DIFFS)

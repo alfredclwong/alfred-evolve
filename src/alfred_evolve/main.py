@@ -2,7 +2,6 @@ from alfred_evolve.database.database import ProgramDatabaseConfig
 from alfred_evolve.diff.generator import DiffGeneratorConfig
 from alfred_evolve.eval.evaluator import EvaluatorConfig
 from alfred_evolve.evolve import AlfredEvolve, Config
-from alfred_evolve.primitive import Program
 from alfred_evolve.prompt.sampler import PromptSamplerConfig
 
 
@@ -23,7 +22,7 @@ def main():
     )
 
     alfred_evolve = AlfredEvolve(config)
-    completed_iterations, programs, results = alfred_evolve.run(num_iterations=100)
+    completed_iterations, programs = alfred_evolve.run(num_iterations=100)
     print(f"Completed {completed_iterations} iterations.")
 
     print("Programs:")

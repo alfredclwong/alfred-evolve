@@ -14,67 +14,49 @@ inspirations = Table(
 )
 
 
-class SQLProgram(Base):
+class Program(Base):
     __tablename__ = "program"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     island_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[Optional[str]] = mapped_column(String, nullable=False, default="")
+    prompt: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    diff: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     # Foreign keys
     parent_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("program.id"), nullable=True
     )
-    prompt_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("prompt.id"), nullable=True
-    )
-    diff_id: Mapped[Optional[int]] = mapped_column(ForeignKey("diff.id"), nullable=True)
-    result_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("result.id"), nullable=True
-    )
 
     # Relationships
-    parent: Mapped[Optional["SQLProgram"]] = relationship(
-        "SQLProgram",
+    parent: Mapped[Optional["Program"]] = relationship(
+        "Program",
         remote_side=[id],
         backref="children",
     )
-    inspirations: Mapped[list["SQLProgram"]] = relationship(
-        "SQLProgram",
+    inspirations: Mapped[list["Program"]] = relationship(
+        "Program",
         secondary=inspirations,
         primaryjoin=id == inspirations.c.program_id,
         secondaryjoin=id == inspirations.c.inspiration_id,
-        backref="inspired_programs",
+        backref="inspired_by",
     )
-    prompt: Mapped[Optional["SQLPrompt"]] = relationship("SQLPrompt", backref="program", foreign_keys=[prompt_id])
-    diff: Mapped[Optional["SQLDiff"]] = relationship("SQLDiff", backref="program", foreign_keys=[diff_id])
-    result: Mapped[Optional["SQLResult"]] = relationship("SQLResult", backref="program", foreign_keys=[result_id])
-
-
-class SQLPrompt(Base):
-    __tablename__ = "prompt"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    program_id: Mapped[int] = mapped_column(ForeignKey("program.id"), nullable=False)
-    content: Mapped[str] = mapped_column(String, nullable=False)
-
-
-class SQLDiff(Base):
-    __tablename__ = "diff"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    program_id: Mapped[int] = mapped_column(ForeignKey("program.id"), nullable=False)
-    content: Mapped[str] = mapped_column(String, nullable=False)
-
-
-class SQLResult(Base):
-    __tablename__ = "result"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    program_id: Mapped[int] = mapped_column(ForeignKey("program.id"), nullable=False)
-    scores: Mapped[list["SQLScore"]] = relationship(
-        "SQLScore", backref=backref("result")
+    scores: Mapped[list["Score"]] = relationship(
+        "Score",
+        backref=backref("program"),
+        lazy="joined"  # eager load the scores using joined loading
     )
 
+    def __repr__(self):
+        content_preview = self.content[:20] if self.content else "No content"
+        return f"<Program(id={self.id}, island_id={self.island_id}, content={content_preview}...)>"
 
-class SQLScore(Base):
+
+class Score(Base):
     __tablename__ = "score"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    result_id: Mapped[int] = mapped_column(ForeignKey("result.id"), nullable=False)
+    program_id: Mapped[int] = mapped_column(ForeignKey("program.id"), nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
     value: Mapped[float] = mapped_column(Float, nullable=False)
+
+    def __repr__(self):
+        return f"<Score(id={self.id}, program_id={self.program_id}, name={self.name}, value={self.value})>"

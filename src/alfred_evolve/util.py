@@ -10,7 +10,7 @@ def apply_diff(program_content: Optional[str], diff_content: Optional[str]) -> s
         return program_content
     if not program_content:
         return diff_content
-    return program_content + "\n" + diff_content
+    return program_content + diff_content
 
 
 def levenstein_distance(s1: str, s2: str) -> int:
