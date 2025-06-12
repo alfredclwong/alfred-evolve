@@ -1,10 +1,16 @@
-import random
 from dataclasses import dataclass
+from pathlib import Path
+
+from alfred_evolve.eval.docker import run, start, stop
 
 
 @dataclass(frozen=True)
 class EvaluatorConfig:
-    pass
+    container_name: str
+    image: str
+    eval_file: Path
+    cpu_limit: str
+    memory_limit: str
 
 
 class Evaluator:
@@ -12,4 +18,20 @@ class Evaluator:
         self.cfg = cfg
 
     def evaluate(self, program_content: str) -> dict[str, float]:
-        return {"score": random.uniform(0, 1), "complexity": len(program_content) / 10000}
+        name = start(
+            base_name=self.cfg.container_name,
+            image=self.cfg.image,
+            memory_limit=self.cfg.memory_limit,
+            cpu_limit=self.cfg.cpu_limit,
+        )
+        score_dict = {"SCORE": 0.0}
+        # score_dict["COMPLEXITY"] = len(program_content) / 10000
+        try:
+            score_dict |= run(
+                name=name,
+                program_content=program_content,
+                eval_file=self.cfg.eval_file,
+            )
+        finally:
+            stop(name=name)
+            return score_dict

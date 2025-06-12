@@ -1,16 +1,36 @@
+import re
 from typing import Optional
 
 
-def apply_diff(program_content: Optional[str], diff_content: Optional[str]) -> str:
-    if program_content is None:
-        program_content = ""
-    if diff_content is None:
-        diff_content = ""
-    if not diff_content:
-        return program_content
-    if not program_content:
-        return diff_content
-    return program_content + diff_content
+def extract_tagged_text(llm_output: str, tag: str) -> Optional[str]:
+    start = f"<{tag}>"
+    end = f"</{tag}>"
+    if start not in llm_output or end not in llm_output:
+        return None
+    start_index = llm_output.index(start) + len(start)
+    end_index = llm_output.index(end)
+    text = llm_output[start_index:end_index]
+    return text
+
+
+def apply_diff(program_content: str, diff_content: str) -> Optional[str]:
+    return _apply_diff_search_replace(program_content, diff_content)
+
+
+def _apply_diff_search_replace(program_content: str, diff_content: str) -> Optional[str]:
+    search_replace_pattern = re.compile(
+        r"<<<<<<<< SEARCH\n(.*?)\n========\n(.*?)\n>>>>>>>> REPLACE", re.DOTALL
+    )
+    matches = search_replace_pattern.findall(diff_content)
+    if not matches:
+        print("No valid SEARCH/REPLACE blocks found in diff content.")
+        return None
+
+    patched_content = program_content
+    for search, replace in matches:
+        patched_content = patched_content.replace(search, replace)
+
+    return patched_content
 
 
 def levenstein_distance(s1: str, s2: str) -> int:

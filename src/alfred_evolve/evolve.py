@@ -1,6 +1,6 @@
-import random
 import time
 from dataclasses import dataclass
+from typing import Optional
 
 import ray
 import ray.util.queue
@@ -27,10 +27,11 @@ class ProgramDatabaseActor:
         inspiration_ids: list[int],
         prompt: str,
         diff: str,
+        reasoning: str,
         score_dict: dict[str, float],
     ):
         self.program_database.add_program(
-            parent, inspiration_ids, prompt, diff, score_dict
+            parent, inspiration_ids, prompt, diff, reasoning, score_dict
         )
 
     def get_programs(self):
@@ -41,19 +42,16 @@ class ProgramDatabaseActor:
 def build_prompt(
     prompt_sampler: PromptSampler, parent: Program, inspirations: list[Program]
 ) -> str:
-    time.sleep(random.uniform(0, 0.1))
     return prompt_sampler.build(parent, inspirations)
 
 
 @ray.remote
-def generate_diff(diff_generator: DiffGenerator, prompt: str) -> str:
-    time.sleep(random.uniform(0, 0.5))
+def generate_diff(diff_generator: DiffGenerator, prompt: str) -> tuple[Optional[str], Optional[str]]:
     return diff_generator.generate(prompt)
 
 
 @ray.remote
 def evaluate_program(evaluator: Evaluator, program_content: str) -> dict[str, float]:
-    time.sleep(random.uniform(0, 0.5))
     return evaluator.evaluate(program_content)
 
 
@@ -62,6 +60,8 @@ class Config:
     max_concurrent_builds: int
     max_concurrent_generates: int
     max_concurrent_evaluates: int
+    max_pending_generates: int
+    max_pending_evaluates: int
     prompt_sampler_config: PromptSamplerConfig
     diff_generator_config: DiffGeneratorConfig
     evaluator_pool_config: EvaluatorConfig
@@ -94,7 +94,6 @@ class AlfredEvolve:
         self.build_tasks = {}
         self.generate_tasks = {}
         self.evaluate_tasks = {}
-        self.build_queue = ray.util.queue.Queue()
         self.generate_queue = ray.util.queue.Queue()
         self.evaluate_queue = ray.util.queue.Queue()
 
@@ -119,7 +118,7 @@ class AlfredEvolve:
         """
         completed_iterations = 0
 
-        for _ in range(min(num_iterations, self.cfg.max_concurrent_builds)):
+        for _ in range(min(num_iterations, self.cfg.max_concurrent_builds, self.cfg.max_pending_generates)):
             self._start_build_task()
 
         while completed_iterations < num_iterations:
@@ -174,10 +173,13 @@ class AlfredEvolve:
             ready, _ = ray.wait([future], timeout=0)
 
             if ready:
-                diff: str = ray.get(future)
-                del task_info["future"]
-                self.evaluate_queue.put({"diff": diff, **task_info})
                 completed_tasks.append(task_id)
+                diff, reasoning = ray.get(future)
+                if diff is None:
+                    print(f"\033[91mDiff generation failed for task {task_id}. Skipping.\033[0m")
+                    continue
+                del task_info["future"]
+                self.evaluate_queue.put({"diff": diff, "reasoning": reasoning, **task_info})
 
         for task_id in completed_tasks:
             del self.generate_tasks[task_id]
@@ -192,12 +194,14 @@ class AlfredEvolve:
 
             if ready:
                 score_dict: dict[str, float] = ray.get(future)
+                print(f"Evaluation completed for task {task_id}: {score_dict}")
                 ray.get(
                     self.program_database_actor.add_program.remote(
                         task_info["parent"],
                         task_info["inspiration_ids"],
                         task_info["prompt"],
                         task_info["diff"],
+                        task_info["reasoning"],
                         score_dict,
                     )
                 )
@@ -218,6 +222,7 @@ class AlfredEvolve:
         while (
             len(self.build_tasks) < self.cfg.max_concurrent_builds
             and total_in_progress < remaining_iterations
+            and len(self.generate_queue) < self.cfg.max_pending_generates
         ):
             self._start_build_task()
             total_in_progress += 1
@@ -225,6 +230,7 @@ class AlfredEvolve:
         while (
             len(self.generate_tasks) < self.cfg.max_concurrent_generates
             and self.generate_queue
+            and len(self.evaluate_queue) < self.cfg.max_pending_evaluates
         ):
             item = self.generate_queue.get()
             generate_future = generate_diff.remote(self.diff_generator, item["prompt"])
@@ -240,6 +246,10 @@ class AlfredEvolve:
         ):
             item = self.evaluate_queue.get()
             child_content = apply_diff(item["parent"].content, item["diff"])
+            if child_content is None:
+                print(f"\033[91mFailed to apply diff for task {id(item)}. Skipping.\033[0m")
+                print(item["diff"])
+                continue
             evaluate_future = evaluate_program.remote(self.evaluator, child_content)
             task_id = id(evaluate_future)
             self.evaluate_tasks[task_id] = {
