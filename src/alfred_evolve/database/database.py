@@ -13,16 +13,22 @@ class ProgramDatabaseConfig:
     url: str
     n_islands: int
     initial_program_content: str
-    n_inspirations: int
+    n_inspirations_best: int
+    n_inspirations_prev: int
+    n_inspirations_rand: int
     migration_k: int
     migration_frequency: float
 
 
-class SampleMode(Enum):
-    ISLAND_ALL = auto()
-    GLOBAL_INSPIRATIONS = auto()
-    GLOBAL_PARENT = auto()
-    SCORE_WEIGHTED = auto()
+class SampleScope(Enum):
+    ISLAND = auto()
+    GLOBAL = auto()
+
+
+class SampleStrategy(Enum):
+    BEST = auto()
+    PREV = auto()
+    RAND = auto()
 
 
 class ProgramDatabase(SQLDatabase):
@@ -50,46 +56,70 @@ class ProgramDatabase(SQLDatabase):
     def _next_island(self):
         self.current_island = (self.current_island + 1) % self.cfg.n_islands
 
-    def sample(
-        self, sample_mode: SampleMode = SampleMode.GLOBAL_INSPIRATIONS
-    ) -> tuple[Program, list[Program]]:
+    def sample(self) -> tuple[Program, list[Program]]:
         if random.random() < self.cfg.migration_frequency:
             # Instead of sampling from this island, migrate and sample from the next island
             self.migrate(k=self.cfg.migration_k)
 
-        top_island_programs = self.get_topk_programs(
-            k=1 + self.cfg.n_inspirations,
-            score_name="SCORE",
-            island_id=self.current_island,
+        parent = self._sample(
+            k=1, scope=SampleScope.ISLAND, strategy=SampleStrategy.BEST, parent=None
+        )[0]
+        inspirations = sum(
+            [
+                self._sample(k=k, scope=scope, strategy=strategy, parent=parent)
+                for k, scope, strategy in [
+                    (
+                        self.cfg.n_inspirations_best,
+                        SampleScope.ISLAND,
+                        SampleStrategy.BEST,
+                    ),
+                    (
+                        self.cfg.n_inspirations_prev,
+                        SampleScope.ISLAND,
+                        SampleStrategy.PREV,
+                    ),
+                    (
+                        self.cfg.n_inspirations_rand,
+                        SampleScope.ISLAND,
+                        SampleStrategy.RAND,
+                    ),
+                ]
+            ],
+            [],
         )
-        if not top_island_programs:
-            return self.get(Program, filter_by={"island_id": self.current_island}), []
-        if sample_mode == SampleMode.ISLAND_ALL:
-            parent = top_island_programs[0]
-            inspirations = top_island_programs[1:]
-        elif sample_mode == SampleMode.GLOBAL_INSPIRATIONS:
-            parent = top_island_programs[0]
-            inspirations = self.get_topk_programs(
-                k=1 + self.cfg.n_inspirations,
-                score_name="SCORE",
-                island_id=None,
-            )
-            inspirations = [insp for insp in inspirations if insp.id != parent.id][
-                : self.cfg.n_inspirations
-            ]
-        elif sample_mode == SampleMode.GLOBAL_PARENT:
-            parent = self.get_topk_programs(k=1, score_name="SCORE", island_id=None)[0]
-            if parent == top_island_programs[0]:
-                inspirations = top_island_programs[1:]
-            else:
-                inspirations = top_island_programs[:-1]
-        elif sample_mode == SampleMode.SCORE_WEIGHTED:
-            raise NotImplementedError("Score-weighted sampling is not implemented yet.")
-        else:
-            raise ValueError(f"Unknown sample mode: {sample_mode}")
+        # Make sure we don't have duplicate inspirations
+        inspirations = list({insp.id: insp for insp in inspirations}.values())
 
         self._next_island()
         return parent, inspirations
+
+    def _sample(
+        self,
+        k: int,
+        scope: SampleScope,
+        strategy: SampleStrategy,
+        parent: Optional[Program],
+    ) -> list[Program]:
+        if scope == SampleScope.ISLAND:
+            programs = self.get_topk_programs(k=k + 1, island_id=self.current_island)
+        elif scope == SampleScope.GLOBAL:
+            programs = self.get_topk_programs(k=k + 1)
+        else:
+            raise ValueError(f"Unknown sample scope: {scope}")
+        if parent is not None:
+            programs = [p for p in programs if p.id != parent.id][:k]
+        if strategy == SampleStrategy.BEST:
+            return programs[:k]
+        elif strategy == SampleStrategy.RAND:
+            # weights = [
+            #     self.get(Score, filter_by={"program_id": p.id, "name": "SCORE"}).value
+            #     for p in programs
+            # ]
+            return random.sample(programs, k) if len(programs) > k else programs
+        elif strategy == SampleStrategy.PREV:
+            return sorted(programs, key=lambda p: p.id, reverse=True)[:k]
+        else:
+            raise ValueError(f"Unknown sample strategy: {strategy}")
 
     def get_topk_programs(
         self,
@@ -112,9 +142,10 @@ class ProgramDatabase(SQLDatabase):
         if not topk_programs:
             return
 
+        next_island = (self.current_island + 1) % self.cfg.n_islands
         for program in topk_programs:
             copy_program = Program(
-                island_id=(self.current_island + 1) % self.cfg.n_islands,
+                island_id=next_island,
                 content=program.content,
                 prompt=program.prompt,
                 diff=program.diff,
@@ -124,7 +155,7 @@ class ProgramDatabase(SQLDatabase):
             self.add(copy_program)
 
         print(
-            f"Migrated {len(topk_programs)} programs to island {self.current_island}."
+            f"Migrated {len(topk_programs)} programs from island {self.current_island}->{next_island}."
         )
         self._next_island()
 
@@ -148,7 +179,12 @@ class ProgramDatabase(SQLDatabase):
         for inspiration_id in inspiration_ids:
             inspiration = self.get(Program, filter_by={"id": inspiration_id})
             child.inspirations.append(inspiration)
-        child_id = self.add(child)
+        try:
+            child_id = self.add(child)
+        except Exception as e:
+            print(f"Error adding program: {e}")
+            print(child)
+            raise
         for name, value in score_dict.items():
             score = Score(name=name, value=value, program_id=child_id)
             self.add(score)

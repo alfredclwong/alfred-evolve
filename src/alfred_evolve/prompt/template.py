@@ -1,7 +1,7 @@
 ISLAND_VARIATIONS = [
     [""],
-    ["explore", "plan"],
-    ["tweak", "optimize", "simplify", "refactor"],
+    ["explore", "plan", "refactor"],
+    ["tweak", "optimize", "simplify"],
 ]
 
 VARIATIONS = {
@@ -61,7 +61,8 @@ the diff itself. The reasoning should be a concise explanation of the changes \
 you made and why you believe they will improve the program's score. The diff \
 should consist of SEARCH/REPLACE blocks that can be applied to the parent, and \
 no other text. One diff may contain multiple SEARCH/REPLACE blocks, separated \
-by newlines.
+by newlines. The resulting program should be a valid Python program that will \
+attempt to solve the task.
 
 SEARCH/REPLACE block rules:
 1. Each SEARCH/REPLACE block consists of a SEARCH section and a REPLACE section

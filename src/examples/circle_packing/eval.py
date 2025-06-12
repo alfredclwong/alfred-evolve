@@ -18,7 +18,7 @@ class Reason(Enum):
     OUT_OF_BOUNDS = auto()
     OVERLAP = auto()
     TIMEOUT = auto()
-    INVALID_COMPLETION = auto()
+    INVALID_CODE = auto()
 
 
 def is_valid(packing: np.ndarray, tol: float = 1e-9) -> tuple[bool, Reason]:
@@ -138,7 +138,7 @@ def main():
         reason = Reason.TIMEOUT
     except Exception as e:
         print(e)
-        reason = Reason.INVALID_COMPLETION
+        reason = Reason.INVALID_CODE
 
     print_score(score, reason)
 
