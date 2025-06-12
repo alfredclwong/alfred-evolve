@@ -1,7 +1,7 @@
 ISLAND_VARIATIONS = [
     [""],
-    ["explore", "plan", "refactor"],
-    ["tweak", "optimize", "simplify", "fix"],
+    ["explore", "plan"],
+    ["tweak", "optimize", "simplify", "refactor"],
 ]
 
 VARIATIONS = {
@@ -32,11 +32,6 @@ VARIATIONS = {
         "This might include breaking down large functions into smaller ones, improving variable names, "
         "or reorganizing the code for better readability. The goal is to make the code cleaner and more maintainable, "
         "which could lead to a higher score."
-    ),
-    "fix": (
-        "Try to fix any issues or bugs in the previous completions that might be causing low scores. "
-        "This might include correcting logic errors, checking for edge cases, or addressing performance issues. "
-        "The goal is to ensure that the code works correctly and efficiently, which could lead to a higher score."
     ),
     "optimize": (
         "Try to optimize the previous completions by improving performance or reducing resource usage. "

@@ -20,6 +20,7 @@ class ProgramDatabaseConfig:
 
 class SampleMode(Enum):
     ISLAND_ALL = auto()
+    GLOBAL_INSPIRATIONS = auto()
     GLOBAL_PARENT = auto()
     SCORE_WEIGHTED = auto()
 
@@ -34,7 +35,13 @@ class ProgramDatabase(SQLDatabase):
                 f"Initializing database with {cfg.n_islands} islands and initial program content."
             )
             for i in range(cfg.n_islands):
-                program_id = self.add(Program(island_id=i, content=cfg.initial_program_content, reasoning="Initial program"))
+                program_id = self.add(
+                    Program(
+                        island_id=i,
+                        content=cfg.initial_program_content,
+                        reasoning="Initial program",
+                    )
+                )
                 self.add(Score(name="SCORE", value=0.0, program_id=program_id))
 
         self.cfg = cfg
@@ -44,7 +51,7 @@ class ProgramDatabase(SQLDatabase):
         self.current_island = (self.current_island + 1) % self.cfg.n_islands
 
     def sample(
-        self, sample_mode: SampleMode = SampleMode.ISLAND_ALL
+        self, sample_mode: SampleMode = SampleMode.GLOBAL_INSPIRATIONS
     ) -> tuple[Program, list[Program]]:
         if random.random() < self.cfg.migration_frequency:
             # Instead of sampling from this island, migrate and sample from the next island
@@ -60,6 +67,16 @@ class ProgramDatabase(SQLDatabase):
         if sample_mode == SampleMode.ISLAND_ALL:
             parent = top_island_programs[0]
             inspirations = top_island_programs[1:]
+        elif sample_mode == SampleMode.GLOBAL_INSPIRATIONS:
+            parent = top_island_programs[0]
+            inspirations = self.get_topk_programs(
+                k=1 + self.cfg.n_inspirations,
+                score_name="SCORE",
+                island_id=None,
+            )
+            inspirations = [insp for insp in inspirations if insp.id != parent.id][
+                : self.cfg.n_inspirations
+            ]
         elif sample_mode == SampleMode.GLOBAL_PARENT:
             parent = self.get_topk_programs(k=1, score_name="SCORE", island_id=None)[0]
             if parent == top_island_programs[0]:
@@ -106,7 +123,9 @@ class ProgramDatabase(SQLDatabase):
             )
             self.add(copy_program)
 
-        print(f"Migrated {len(topk_programs)} programs to island {self.current_island}.")
+        print(
+            f"Migrated {len(topk_programs)} programs to island {self.current_island}."
+        )
         self._next_island()
 
     def add_program(
