@@ -44,12 +44,7 @@ def score_packing(circles):
         return 0.0
     return np.sum(circles[:, 2])
 
-def _initialize_circles(num_circles: int) -> np.ndarray:
-    """Initializes circles in a hexagonal packing arrangement."""
-    circles = np.zeros((num_circles, 3))
-    # Initial radius based on number of circles and area
-    # A slightly larger initial radius might help fill space more aggressively
-def _initialize_circles(num_circles: int, initial_radius_factor: float, rows_factor: float = 1.0) -> np.ndarray:
+def _initialize_circles(num_circles: int, initial_radius_factor: float = 1.0, rows_factor: float = 1.0) -> np.ndarray:
     """Initializes circles in a hexagonal packing arrangement."""
     circles = np.zeros((num_circles, 3))
     # Initial radius based on number of circles and area
@@ -106,33 +101,24 @@ def _initialize_circles(num_circles: int, initial_radius_factor: float, rows_fac
 def pack_26() -> np.ndarray:
     num_circles = 26
     
-    # Define the objective function for scipy.optimize.minimize
-    def objective_function(packed_params):
-        circles = packed_params.reshape(num_circles, 3)
-        
-        circles = packed_params.reshape(num_circles, 3)
-        
-        circles[:, 2] = np.maximum(circles[:, 2], 1e-7)
-
-        sum_radii = np.sum(circles[:, 2])
-        
+    def _calculate_penalties(circles, penalty_weight):
+        """Calculates overlap and boundary penalties for a given set of circles."""
         penalty = 0.0
         
         centers = circles[:, :2]
         radii = circles[:, 2]
 
+        # Overlap penalty
         diff = centers[:, np.newaxis, :] - centers[np.newaxis, :, :]
         dist_sq = np.sum(diff**2, axis=-1)
         dist = np.sqrt(dist_sq)
-
         min_dist = radii[:, np.newaxis] + radii[np.newaxis, :]
         
         overlap_mask = dist < min_dist - 1e-9 
         overlap_values = np.triu(min_dist - dist, k=1)
-        
-        penalty_weight = 1000 # Increased penalty weight for L-BFGS-B
         penalty += penalty_weight * np.sum(overlap_values[overlap_mask]**2)
 
+        # Boundary penalties
         x, y, r = circles[:, 0], circles[:, 1], circles[:, 2]
         
         penalty_x_lower = np.maximum(0, r - x)**2
@@ -143,6 +129,14 @@ def pack_26() -> np.ndarray:
         penalty_y_upper = np.maximum(0, y + r - 1)**2
         penalty += penalty_weight * np.sum(penalty_y_lower + penalty_y_upper)
                 
+        return penalty
+
+    # Define the objective function for scipy.optimize.minimize
+    def objective_function(packed_params, penalty_weight=1000): # Default penalty for L-BFGS-B
+        circles = packed_params.reshape(num_circles, 3)
+        circles[:, 2] = np.maximum(circles[:, 2], 1e-7)
+        sum_radii = np.sum(circles[:, 2])
+        penalty = _calculate_penalties(circles, penalty_weight)
         return -sum_radii + penalty
 
     # Define bounds for x, y, and r for each circle
@@ -152,65 +146,47 @@ def pack_26() -> np.ndarray:
         bounds.append((0.0, 1.0)) 
         bounds.append((1e-7, 0.5)) 
     
-    best_score = 0.0
-    best_circles = None
-
-    # Try multiple initializations
     # Define objective function for dual_annealing (same as for L-BFGS-B but with adaptable penalty)
     def objective_function_sa(packed_params, penalty_weight_sa):
         circles = packed_params.reshape(num_circles, 3)
         circles[:, 2] = np.maximum(circles[:, 2], 1e-7)
         sum_radii = np.sum(circles[:, 2])
-        penalty = 0.0
-        
-        centers = circles[:, :2]
-        radii = circles[:, 2]
-        diff = centers[:, np.newaxis, :] - centers[np.newaxis, :, :]
-        dist_sq = np.sum(diff**2, axis=-1)
-        dist = np.sqrt(dist_sq)
-        min_dist = radii[:, np.newaxis] + radii[np.newaxis, :]
-        
-        overlap_mask = dist < min_dist - 1e-9 
-        overlap_values = np.triu(min_dist - dist, k=1)
-        penalty += penalty_weight_sa * np.sum(overlap_values[overlap_mask]**2)
+        penalty = _calculate_penalties(circles, penalty_weight_sa)
+        return -sum_radii + penalty
 
-        x, y, r = circles[:, 0], circles[:, 1], circles[:, 2]
-        penalty_x_lower = np.maximum(0, r - x)**2
-        penalty_x_upper = np.maximum(0, x + r - 1)**2
-        penalty += penalty_weight_sa * np.sum(penalty_x_lower + penalty_x_upper)
-        penalty_y_lower = np.maximum(0, r - y)**2
-        penalty_y_upper = np.maximum(0, y + r - 1)**2
-        penalty += penalty_weight_sa * np.sum(penalty_y_lower + penalty_y_upper)
-                
+    # Define objective function for radii-only optimization
+    def objective_function_radii_only(radii_params, fixed_centers_val, penalty_weight_radii):
+        radii = np.maximum(radii_params, 1e-7)
+        circles_temp = np.hstack((fixed_centers_val, radii.reshape(-1, 1)))
+        
+        sum_radii = np.sum(radii)
+        penalty = _calculate_penalties(circles_temp, penalty_weight_radii)
         return -sum_radii + penalty
 
     best_score = 0.0
     best_circles = None
 
     # Use dual_annealing for global optimization, then L-BFGS-B for refinement
-    # Adjusted penalty weight for SA to encourage valid states more aggressively
     sa_penalty_weight = 1000 
     
-    # Dual annealing doesn't use x0, but rather bounds directly.
-    # It attempts multiple initializations internally.
-    # We set initial_temp higher for more exploration
-    # and maxiter for number of annealing cycles.
+    # Initialize circles using the helper function
+    initial_circles = _initialize_circles(num_circles, initial_radius_factor=1.0, rows_factor=1.1)
     
     # The objective_function passed to dual_annealing needs to take a single array argument.
-    # We will wrap objective_function_sa to fit this.
     def sa_objective_wrapper(x):
         return objective_function_sa(x, sa_penalty_weight)
 
     # Run dual_annealing with increased iterations and temperature for broader exploration
+    # Use the initialized circles as a starting point for dual_annealing if possible,
+    # though dual_annealing samples randomly within bounds.
     sa_result = dual_annealing(func=sa_objective_wrapper, bounds=bounds, maxiter=5000, initial_temp=15000, seed=42)
     
-    # Use the result from dual_annealing as the initial guess for L-BFGS-B
-    # This allows L-BFGS-B to fine-tune the globally optimized solution.
     x0_refined = sa_result.x
     
     # Introduce a small random perturbation to the SA result for L-BFGS-B
-    # This can help L-BFGS-B escape shallow local minima if SA converged too early.
-    perturbation_scale = 1e-4 # Small scale for perturbation
+    # Scale perturbation by the average radius from SA result
+    avg_radius_sa = np.mean(x0_refined.reshape(num_circles, 3)[:, 2])
+    perturbation_scale = 1e-3 * avg_radius_sa 
     x0_refined_perturbed = x0_refined + np.random.uniform(-perturbation_scale, perturbation_scale, size=x0_refined.shape)
     
     # Now run L-BFGS-B with the higher penalty weight for precision and increased maxiter
@@ -218,7 +194,34 @@ def pack_26() -> np.ndarray:
     
     current_optimized_circles = result_lbfgsb.x.reshape(num_circles, 3)
 
-    # Final clamping and slight shrinkage after L-BFGS-B to ensure strict validity
+    # Iterative "Squash and Expand" refinement
+    num_squash_expand_iterations = 5
+    shrink_factor_per_iter = 0.995 # Shrink radii by 0.5% each iteration
+    lbfgsb_penalty_base = 1000
+    lbfgsb_maxiter_per_iter = 10000
+
+    for iter_idx in range(num_squash_expand_iterations):
+        # 1. Slightly shrink existing circles
+        current_optimized_circles[:, 2] *= shrink_factor_per_iter
+        
+        # Ensure circles are still within bounds after shrinking
+        for i in range(num_circles):
+            x, y, r = current_optimized_circles[i]
+            r = max(r, 1e-7) 
+            x = np.clip(x, r, 1 - r)
+            y = np.clip(y, r, 1 - r)
+            current_optimized_circles[i] = [x, y, r]
+
+        # 2. Re-optimize all parameters (x, y, r) with L-BFGS-B from this slightly shrunk state
+        # Increase penalty weight for stricter adherence as we refine
+        current_lbfgsb_penalty = lbfgsb_penalty_base * (1 + iter_idx * 0.5) 
+
+        result_iter_lbfgsb = minimize(objective_function, current_optimized_circles.flatten(), 
+                                      args=(current_lbfgsb_penalty,), # Pass penalty weight as arg
+                                      method='L-BFGS-B', bounds=bounds, options={'disp': False, 'maxiter': lbfgsb_maxiter_per_iter})
+        current_optimized_circles = result_iter_lbfgsb.x.reshape(num_circles, 3)
+
+    # Final clamping after all L-BFGS-B iterations
     for i in range(num_circles):
         x, y, r = current_optimized_circles[i]
         r = max(r, 1e-7) 
@@ -226,51 +229,19 @@ def pack_26() -> np.ndarray:
         y = np.clip(y, r, 1 - r)
         current_optimized_circles[i] = [x, y, r]
 
-    # Step 3: Refine radii with fixed centers using BFGS
-    # This objective function only optimizes radii, given fixed centers
-    fixed_centers = current_optimized_circles[:, :2] # Centers from the previous step
-
-    def objective_function_radii_only(radii_params):
-        radii = np.maximum(radii_params, 1e-7)
-        circles_temp = np.hstack((fixed_centers, radii.reshape(-1, 1)))
-        
-        sum_radii = np.sum(radii)
-        
-        # Use a higher penalty weight for this step to ensure no overlaps/bounds issues
-        penalty_weight_radii = 2000 
-        penalty = 0.0
-        
-        centers = circles_temp[:, :2]
-        radii_temp = circles_temp[:, 2]
-
-        diff = centers[:, np.newaxis, :] - centers[np.newaxis, :, :]
-        dist_sq = np.sum(diff**2, axis=-1)
-        dist = np.sqrt(dist_sq)
-
-        min_dist = radii_temp[:, np.newaxis] + radii_temp[np.newaxis, :]
-        
-        overlap_mask = dist < min_dist - 1e-9 
-        overlap_values = np.triu(min_dist - dist, k=1)
-        penalty += penalty_weight_radii * np.sum(overlap_values[overlap_mask]**2)
-
-        x, y, r_temp = circles_temp[:, 0], circles_temp[:, 1], circles_temp[:, 2]
-        
-        penalty_x_lower = np.maximum(0, r_temp - x)**2
-        penalty_x_upper = np.maximum(0, x + r_temp - 1)**2
-        penalty += penalty_weight_radii * np.sum(penalty_x_lower + penalty_x_upper)
-
-        penalty_y_lower = np.maximum(0, r_temp - y)**2
-        penalty_y_upper = np.maximum(0, y + r_temp - 1)**2
-        penalty += penalty_weight_radii * np.sum(penalty_y_lower + penalty_y_upper)
-                
-        return -sum_radii + penalty
-
-    # Bounds for radii only
+    # Final refinement of radii with fixed centers using BFGS
+    fixed_centers = current_optimized_circles[:, :2] 
     radii_bounds = [(1e-7, 0.5) for _ in range(num_circles)]
 
-    # Run BFGS optimization for radii only
-    result_bfgs_radii = minimize(objective_function_radii_only, current_optimized_circles[:, 2], 
-                                 method='L-BFGS-B', bounds=radii_bounds, options={'disp': False, 'maxiter': 10000})
+    # Use a higher penalty weight for this final step to ensure no overlaps/bounds issues
+    penalty_weight_radii = 2500 
+    
+    # Wrap radii-only objective for `minimize`
+    def radii_objective_wrapper(radii_params):
+        return objective_function_radii_only(radii_params, fixed_centers, penalty_weight_radii)
+
+    result_bfgs_radii = minimize(radii_objective_wrapper, current_optimized_circles[:, 2], 
+                                 method='L-BFGS-B', bounds=radii_bounds, options={'disp': False, 'maxiter': 20000})
 
     final_radii = np.maximum(result_bfgs_radii.x, 1e-7)
     best_circles = np.hstack((fixed_centers, final_radii.reshape(-1, 1)))

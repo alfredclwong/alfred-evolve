@@ -182,10 +182,11 @@ class ProgramDatabase(SQLDatabase):
             raise ValueError(
                 f"Program with ID {program_id} is already in island {target_island_id}."
             )
+        target_island_generation = self._get_island_generation(target_island_id)
         # Create a copy of the program for the target island
         copy_program = Program(
             island_id=target_island_id,
-            generation_id=program.generation_id + 1,
+            generation_id=target_island_generation + 1,
             content=program.content,
             prompt=program.prompt,
             diff=program.diff,

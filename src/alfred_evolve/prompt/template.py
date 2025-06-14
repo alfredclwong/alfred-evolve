@@ -1,7 +1,8 @@
 ISLAND_VARIATIONS = [
     # ["", "rewrite"],
-    ["explore", "plan", "refactor"],
-    ["tweak", "optimize", "simplify"],
+    # ["explore", "plan", "refactor"],
+    # ["tweak", "optimize", "simplify"],
+    ["explore", "plan", "refactor", "optimize", "simplify"],
 ]
 
 VARIATIONS = {
