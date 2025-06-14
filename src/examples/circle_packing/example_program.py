@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.optimize import minimize
+from scipy.optimize import minimize, dual_annealing
 
 def check_overlap(circles, tolerance=1e-9):
     """Checks for overlaps between circles."""
@@ -154,52 +154,86 @@ def pack_26() -> np.ndarray:
     best_circles = None
 
     # Try multiple initializations
-    initialization_configs = [
-        (0.4, 1.0),
-        (0.45, 0.9),
-        (0.35, 1.1),
-        (0.42, 1.05),
-        (0.38, 0.95),
-        (0.41, 0.98), # New variations
-        (0.39, 1.02),
-        (0.43, 0.97),
-        (0.37, 1.03)
-    ]
-
-    for factor, rows_factor in initialization_configs:
-        initial_circles = _initialize_circles(num_circles, initial_radius_factor=factor, rows_factor=rows_factor)
-        x0 = initial_circles.flatten()
-
-        result = minimize(objective_function, x0, method='L-BFGS-B', bounds=bounds, options={'disp': False, 'maxiter': 20000}) # Increased maxiter
+    # Define objective function for dual_annealing (same as for L-BFGS-B but with adaptable penalty)
+    def objective_function_sa(packed_params, penalty_weight_sa):
+        circles = packed_params.reshape(num_circles, 3)
+        circles[:, 2] = np.maximum(circles[:, 2], 1e-7)
+        sum_radii = np.sum(circles[:, 2])
+        penalty = 0.0
         
-        current_optimized_circles = result.x.reshape(num_circles, 3)
+        centers = circles[:, :2]
+        radii = circles[:, 2]
+        diff = centers[:, np.newaxis, :] - centers[np.newaxis, :, :]
+        dist_sq = np.sum(diff**2, axis=-1)
+        dist = np.sqrt(dist_sq)
+        min_dist = radii[:, np.newaxis] + radii[np.newaxis, :]
+        
+        overlap_mask = dist < min_dist - 1e-9 
+        overlap_values = np.triu(min_dist - dist, k=1)
+        penalty += penalty_weight_sa * np.sum(overlap_values[overlap_mask]**2)
 
-        # Final clamping to ensure strict validity after optimization
+        x, y, r = circles[:, 0], circles[:, 1], circles[:, 2]
+        penalty_x_lower = np.maximum(0, r - x)**2
+        penalty_x_upper = np.maximum(0, x + r - 1)**2
+        penalty += penalty_weight_sa * np.sum(penalty_x_lower + penalty_x_upper)
+        penalty_y_lower = np.maximum(0, r - y)**2
+        penalty_y_upper = np.maximum(0, y + r - 1)**2
+        penalty += penalty_weight_sa * np.sum(penalty_y_lower + penalty_y_upper)
+                
+        return -sum_radii + penalty
+
+    best_score = 0.0
+    best_circles = None
+
+    # Use dual_annealing for global optimization, then L-BFGS-B for refinement
+    # Adjusted penalty weight for SA to encourage valid states more aggressively
+    sa_penalty_weight = 1000 
+    
+    # Dual annealing doesn't use x0, but rather bounds directly.
+    # It attempts multiple initializations internally.
+    # We set initial_temp higher for more exploration
+    # and maxiter for number of annealing cycles.
+    
+    # The objective_function passed to dual_annealing needs to take a single array argument.
+    # We will wrap objective_function_sa to fit this.
+    def sa_objective_wrapper(x):
+        return objective_function_sa(x, sa_penalty_weight)
+
+    # Run dual_annealing with increased iterations and temperature for broader exploration
+    sa_result = dual_annealing(func=sa_objective_wrapper, bounds=bounds, maxiter=5000, initial_temp=10000, seed=42)
+    
+    # Use the result from dual_annealing as the initial guess for L-BFGS-B
+    # This allows L-BFGS-B to fine-tune the globally optimized solution.
+    x0_refined = sa_result.x
+
+    # Now run L-BFGS-B with the higher penalty weight for precision and increased maxiter
+    result_lbfgsb = minimize(objective_function, x0_refined, method='L-BFGS-B', bounds=bounds, options={'disp': False, 'maxiter': 50000}) 
+    
+    current_optimized_circles = result_lbfgsb.x.reshape(num_circles, 3)
+
+    # Final clamping to ensure strict validity after optimization
+    for i in range(num_circles):
+        x, y, r = current_optimized_circles[i]
+        r = max(r, 1e-7) 
+        x = np.clip(x, r, 1 - r)
+        y = np.clip(y, r, 1 - r)
+        current_optimized_circles[i] = [x, y, r]
+
+    # One final very slight shrinkage if any overlap or out-of-bounds still exists
+    shrinkage_factor = 0.999
+    max_attempts = 100
+    attempts = 0
+    while (check_overlap(current_optimized_circles, tolerance=1e-9) or 
+           check_bounds(current_optimized_circles, tolerance=1e-9)) and attempts < max_attempts:
+        current_optimized_circles[:, 2] *= shrinkage_factor
         for i in range(num_circles):
             x, y, r = current_optimized_circles[i]
-            r = max(r, 1e-7) 
-            x = np.clip(x, r, 1 - r)
-            y = np.clip(y, r, 1 - r)
-            current_optimized_circles[i] = [x, y, r]
-
-        # One final very slight shrinkage if any overlap or out-of-bounds still exists
-        shrinkage_factor = 0.999
-        max_attempts = 100
-        attempts = 0
-        while (check_overlap(current_optimized_circles, tolerance=1e-9) or 
-               check_bounds(current_optimized_circles, tolerance=1e-9)) and attempts < max_attempts:
-            current_optimized_circles[:, 2] *= shrinkage_factor
-            for i in range(num_circles):
-                x, y, r = current_optimized_circles[i]
-                current_optimized_circles[i, 0] = np.clip(x, r, 1 - r)
-                current_optimized_circles[i, 1] = np.clip(y, r, 1 - r)
-            attempts += 1
-            if np.any(current_optimized_circles[:, 2] < 1e-10): 
-                break
-        
-        current_score = score_packing(current_optimized_circles)
-        if current_score > best_score:
-            best_score = current_score
-            best_circles = current_optimized_circles
+            current_optimized_circles[i, 0] = np.clip(x, r, 1 - r)
+            current_optimized_circles[i, 1] = np.clip(y, r, 1 - r)
+        attempts += 1
+        if np.any(current_optimized_circles[:, 2] < 1e-10): 
+            break
+    
+    best_circles = current_optimized_circles # The best circles are from the refined L-BFGS-B step
 
     return best_circles

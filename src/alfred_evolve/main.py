@@ -29,7 +29,7 @@ The Python environment has the following libraries available: numpy, scipy.\
     config = Config(
         max_concurrent_builds=1,
         max_concurrent_generates=3,
-        max_concurrent_evaluates=6,
+        max_concurrent_evaluates=8,
         max_pending_generates=1,
         max_pending_evaluates=6,
         prompt_sampler_config=PromptSamplerConfig(task=task),

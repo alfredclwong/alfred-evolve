@@ -82,8 +82,8 @@ REPLACE`.
 uniquely identifiable within the parent program.
 4. The REPLACE section contains the code that should replace the SEARCH code.
 5. Both sections operate on a line-by-line basis.
-6. A special case is when the SEARCH section is empty, which means the entire \
-parent program should be replaced with the REPLACE section.
+6. A special case is when the SEARCH section is an empty line, which means the \
+entire parent program should be replaced with the REPLACE section.
 
 Example #1:
 <PARENT>
@@ -105,6 +105,7 @@ def main():
 </PARENT>
 <DIFF>
 <<<<<<<< SEARCH
+
 ========
 if __name__ == "__main__":
     print("Aloha, world!")

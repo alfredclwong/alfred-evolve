@@ -48,13 +48,13 @@ class Program(Base):
         lazy="joined",  # eager load the scores using joined loading
     )
 
-    def __repr__(self):
-        # content_preview = self.content[:20] if self.content else "No content"
-        inspirations_str = ",".join([str(insp.id) for insp in self.inspirations])
-        return (
-            f"<Program(id={self.id}, island_id={self.island_id}, "
-            f"parent_id={self.parent_id}, inspirations={inspirations_str})>"
-        )
+    # def __repr__(self):
+    #     # content_preview = self.content[:20] if self.content else "No content"
+    #     inspirations_str = ",".join([str(insp.id) for insp in self.inspirations])
+    #     return (
+    #         f"<Program(id={self.id}, island_id={self.island_id}, "
+    #         f"parent_id={self.parent_id}, inspirations={inspirations_str})>"
+    # )
 
 
 class Score(Base):
