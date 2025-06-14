@@ -8,15 +8,16 @@ import uuid
 from alfred_evolve.util import extract_tagged_text
 
 
-def run(name: str, program_content: str, eval_file: Path) -> dict[str, float]:
+def run(name: str, program_content: str, eval_file: Path) -> tuple[dict[str, float], Optional[str]]:
     eval_result = _eval(name, program_content, eval_file)
     score_str = extract_tagged_text(eval_result, "SCORE")
-    if not score_str:
-        return {}
-    score_dict = {
-        k: float(v) for k, v in (item.split(": ") for item in score_str.split(", "))
-    }
-    return score_dict
+    artifacts = extract_tagged_text(eval_result, "ARTIFACT")
+    score_dict = {}
+    if score_str:
+        score_dict = {
+            k: float(v) for k, v in (item.split(": ") for item in score_str.split(", "))
+        }
+    return score_dict, artifacts
 
 
 def start(
@@ -55,6 +56,7 @@ def _eval(name: str, program_content: str, eval_file: Path) -> str:
     _cp(name, eval_file, eval_path)
     program_path = Path("program.py")
     _write(name, program_path, program_content)
+    result_str = ""
     try:
         result = subprocess.run(
             [
@@ -70,14 +72,16 @@ def _eval(name: str, program_content: str, eval_file: Path) -> str:
             capture_output=True,
             text=True,
         )
-        return result.stdout
+        result_str = result.stdout
     except subprocess.CalledProcessError as e:
-        print(f"Error occurred while running Docker command: {e}")
-        print(f"Command: {e.cmd}")
-        print(f"Return code: {e.returncode}")
-        print(f"Output: {e.output}")
-        print(f"Error output: {e.stderr}")
-        return ""
+        result = ("<ARTIFACT>"
+                f"docker_error: {e}\n"
+                f"docker_cmd: {e.cmd}\n"
+                f"docker_out: {e.output}\n"
+                "</ARTIFACT>"
+        )
+    finally:
+        return result_str
 
 
 def _cp(name: str, src: Path, dest: Path):

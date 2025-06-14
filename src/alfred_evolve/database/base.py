@@ -22,6 +22,7 @@ class Program(Base):
     reasoning: Mapped[str] = mapped_column(String, nullable=False, default="")
     prompt: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     diff: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    artifacts: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     # Foreign keys
     parent_id: Mapped[Optional[int]] = mapped_column(

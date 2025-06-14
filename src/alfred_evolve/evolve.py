@@ -29,9 +29,10 @@ class ProgramDatabaseActor:
         diff: str,
         reasoning: str,
         score_dict: dict[str, float],
+        artifacts: Optional[str] = None,
     ):
         self.program_database.add_program(
-            parent, inspiration_ids, prompt, diff, reasoning, score_dict
+            parent, inspiration_ids, prompt, diff, reasoning, score_dict, artifacts
         )
 
     def get_programs(self):
@@ -46,12 +47,16 @@ def build_prompt(
 
 
 @ray.remote
-def generate_diff(diff_generator: DiffGenerator, prompt: str) -> tuple[Optional[str], Optional[str]]:
+def generate_diff(
+    diff_generator: DiffGenerator, prompt: str
+) -> tuple[Optional[str], Optional[str]]:
     return diff_generator.generate(prompt)
 
 
 @ray.remote
-def evaluate_program(evaluator: Evaluator, program_content: str) -> dict[str, float]:
+def evaluate_program(
+    evaluator: Evaluator, program_content: str
+) -> tuple[dict[str, float], Optional[str]]:
     return evaluator.evaluate(program_content)
 
 
@@ -118,7 +123,32 @@ class AlfredEvolve:
         """
         completed_iterations = 0
 
-        for _ in range(min(num_iterations, self.cfg.max_concurrent_builds, self.cfg.max_pending_generates)):
+        # initial_programs = ray.get(self.program_database_actor.get_programs.remote())
+        # if not initial_programs:
+        #     # If the program database is empty, initialize it with the initial program content
+        #     initial_program_content = self.cfg.program_database_config.initial_program_content
+        #     initial_scores, initial_artifacts = self.evaluator.evaluate(initial_program_content)
+        #     print(initial_scores)
+        #     print(initial_artifacts)
+        #     for i in range(self.cfg.program_database_config.n_islands):
+        #         ray.get(
+        #             self.program_database_actor.add_program.remote(
+        #                 parent=Program(island_id=i),
+        #                 inspiration_ids=[],
+        #                 prompt="Initial program",
+        #                 diff=">>>>>>>> SEARCH\n========\n<<<<<<<< REPLACE",
+        #                 reasoning="Initial program",
+        #                 score_dict=initial_scores,
+        #             )
+        #         )
+
+        for _ in range(
+            min(
+                num_iterations,
+                self.cfg.max_concurrent_builds,
+                self.cfg.max_pending_generates,
+            )
+        ):
             self._start_build_task()
 
         while completed_iterations < num_iterations:
@@ -176,10 +206,14 @@ class AlfredEvolve:
                 completed_tasks.append(task_id)
                 diff, reasoning = ray.get(future)
                 if diff is None:
-                    print(f"\033[91mDiff generation failed for task {task_id}. Skipping.\033[0m")
+                    print(
+                        f"\033[91mDiff generation failed for task {task_id}. Skipping.\033[0m"
+                    )
                     continue
                 del task_info["future"]
-                self.evaluate_queue.put({"diff": diff, "reasoning": reasoning, **task_info})
+                self.evaluate_queue.put(
+                    {"diff": diff, "reasoning": reasoning, **task_info}
+                )
 
         for task_id in completed_tasks:
             del self.generate_tasks[task_id]
@@ -193,8 +227,11 @@ class AlfredEvolve:
             ready, _ = ray.wait([future], timeout=0)
 
             if ready:
-                score_dict: dict[str, float] = ray.get(future)
-                print(f"Evaluation completed for task {task_id}: {score_dict}")
+                result: tuple[dict[str, float], Optional[str]] = ray.get(future)
+                score_dict, artifacts = result
+                print(
+                    f"Evaluation completed for task {task_id}\n{score_dict=}\n{artifacts=}"
+                )
                 ray.get(
                     self.program_database_actor.add_program.remote(
                         task_info["parent"],
@@ -203,6 +240,7 @@ class AlfredEvolve:
                         task_info["diff"],
                         task_info["reasoning"],
                         score_dict,
+                        artifacts,
                     )
                 )
                 completed_tasks.append(task_id)
@@ -247,7 +285,9 @@ class AlfredEvolve:
             item = self.evaluate_queue.get()
             child_content = apply_diff(item["parent"].content, item["diff"])
             if child_content is None:
-                print(f"\033[91mFailed to apply diff for task {id(item)}. Skipping.\033[0m")
+                print(
+                    f"\033[91mFailed to apply diff for task {id(item)}. Skipping.\033[0m"
+                )
                 print(item["diff"])
                 continue
             evaluate_future = evaluate_program.remote(self.evaluator, child_content)

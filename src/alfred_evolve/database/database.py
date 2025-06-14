@@ -2,6 +2,7 @@ import random
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Optional
+from sqlalchemy import func
 
 from alfred_evolve.database.base import Program, Score
 from alfred_evolve.database.sql import SQLDatabase
@@ -17,7 +18,7 @@ class ProgramDatabaseConfig:
     n_inspirations_prev: int
     n_inspirations_rand: int
     migration_k: int
-    migration_frequency: float
+    migration_frequency: int
 
 
 class SampleScope(Enum):
@@ -56,9 +57,23 @@ class ProgramDatabase(SQLDatabase):
     def _next_island(self):
         self.current_island = (self.current_island + 1) % self.cfg.n_islands
 
+    def num_generations(self) -> int:
+        # Get the program count of the largest island
+        with self.get_session() as session:
+            counts = (
+                session.query(Program.island_id, func.count(Program.id).label("count"))
+                .group_by(Program.island_id)
+                .all()
+            )
+            max_count = max((getattr(c, "count", 0) for c in counts), default=0)
+        return max_count
+
     def sample(self) -> tuple[Program, list[Program]]:
-        if random.random() < self.cfg.migration_frequency:
-            # Instead of sampling from this island, migrate and sample from the next island
+        print(
+            f"Sampling island {self.current_island} at generation {self.num_generations()}."
+        )
+
+        if self.num_generations() % self.cfg.migration_frequency == 0:
             self.migrate(k=self.cfg.migration_k)
 
         parent = self._sample(
@@ -138,26 +153,26 @@ class ProgramDatabase(SQLDatabase):
 
     def migrate(self, k: int):
         """Migrate the topk programs to the next island."""
-        topk_programs = self.get_topk_programs(k=k, island_id=self.current_island)
-        if not topk_programs:
-            return
+        for i in range(self.cfg.n_islands):
+            topk_programs = self.get_topk_programs(k=k, island_id=i)
+            if not topk_programs:
+                continue
 
-        next_island = (self.current_island + 1) % self.cfg.n_islands
-        for program in topk_programs:
-            copy_program = Program(
-                island_id=next_island,
-                content=program.content,
-                prompt=program.prompt,
-                diff=program.diff,
-                parent_id=program.id,
-                reasoning=program.reasoning,
+            next_island = (i + 1) % self.cfg.n_islands
+            for program in topk_programs:
+                copy_program = Program(
+                    island_id=next_island,
+                    content=program.content,
+                    prompt=program.prompt,
+                    diff=program.diff,
+                    parent_id=program.id,
+                    reasoning=program.reasoning,
+                )
+                self.add(copy_program)
+
+            print(
+                f"Migrated {len(topk_programs)} programs from island {i}->{next_island}."
             )
-            self.add(copy_program)
-
-        print(
-            f"Migrated {len(topk_programs)} programs from island {self.current_island}->{next_island}."
-        )
-        self._next_island()
 
     def add_program(
         self,
@@ -167,6 +182,7 @@ class ProgramDatabase(SQLDatabase):
         diff: str,
         reasoning: str,
         score_dict: dict[str, float],
+        artifacts: Optional[str] = None,
     ):
         child = Program(
             island_id=parent.island_id,
@@ -175,6 +191,7 @@ class ProgramDatabase(SQLDatabase):
             diff=diff,
             reasoning=reasoning,
             parent_id=parent.id,
+            artifacts=artifacts,
         )
         for inspiration_id in inspiration_ids:
             inspiration = self.get(Program, filter_by={"id": inspiration_id})

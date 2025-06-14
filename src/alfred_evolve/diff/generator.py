@@ -12,6 +12,7 @@ from alfred_evolve.util import extract_tagged_text
 class DiffGeneratorConfig:
     api_key_path: Path
     model_name: str
+    providers: list[str]
     temperature: float = 0.7
     max_tokens: int | None = None
 
@@ -88,6 +89,11 @@ class DiffGenerator:
             ],
             "temperature": self.cfg.temperature,
         }
+        if self.cfg.providers:
+            data["provider"] = {
+                "only": self.cfg.providers,
+            }
+            data["allow_fallbacks"] = False
         if self.cfg.max_tokens is not None:
             data["max_tokens"] = self.cfg.max_tokens
 
@@ -104,4 +110,5 @@ class DiffGenerator:
             llm_output = response_data["choices"][0]["message"]["content"]
             return llm_output
         else:
+            print(response)
             raise Exception(f"Error: {response.status_code} - {response.text}")

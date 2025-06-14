@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 from alfred_evolve.eval.docker import run, start, stop
 
@@ -17,7 +18,7 @@ class Evaluator:
     def __init__(self, cfg: EvaluatorConfig):
         self.cfg = cfg
 
-    def evaluate(self, program_content: str) -> dict[str, float]:
+    def evaluate(self, program_content: str) -> tuple[dict[str, float], Optional[str]]:
         name = start(
             base_name=self.cfg.container_name,
             image=self.cfg.image,
@@ -25,13 +26,16 @@ class Evaluator:
             cpu_limit=self.cfg.cpu_limit,
         )
         score_dict = {"SCORE": 0.0}
+        artifacts = ""
         # score_dict["COMPLEXITY"] = len(program_content) / 10000
         try:
-            score_dict |= run(
+            score_dict, artifacts = run(
                 name=name,
                 program_content=program_content,
                 eval_file=self.cfg.eval_file,
             )
+        except Exception as e:
+            print(f"Error during evaluation: {e}")
         finally:
             stop(name=name)
-            return score_dict
+            return score_dict, artifacts

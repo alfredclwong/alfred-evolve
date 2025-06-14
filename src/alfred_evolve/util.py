@@ -26,6 +26,10 @@ def _apply_diff_search_replace(program_content: str, diff_content: str) -> Optio
         print("No valid SEARCH/REPLACE blocks found in diff content.")
         return None
 
+    if len(matches) == 1 and matches[0][0] == "":
+        # Special case: empty SEARCH means replace the entire program
+        return matches[0][1]
+
     patched_content = program_content
     for search, replace in matches:
         patched_content = patched_content.replace(search, replace)

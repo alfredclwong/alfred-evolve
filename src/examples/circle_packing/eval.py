@@ -8,6 +8,7 @@ from enum import Enum, auto
 from pathlib import Path
 
 import numpy as np
+import sys
 
 
 class Reason(Enum):
@@ -24,19 +25,14 @@ class Reason(Enum):
 def is_valid(packing: np.ndarray, tol: float = 1e-9) -> tuple[bool, Reason]:
     # type checks
     if not isinstance(packing, np.ndarray):
-        print("Packing must be a numpy array.")
         return False, Reason.INVALID_TYPE
     if packing.ndim != 2 or packing.shape[0] != 26 or packing.shape[1] != 3:
-        print("Packing must contain exactly 26 circles.")
         return False, Reason.INVALID_LENGTH
     if not np.all(packing > 0):
-        print("Circle coordinates and radius must be positive numbers.")
         return False, Reason.INVALID_CIRCLE
     if not _is_in_unit_square(packing, tol):
-        print("Circles must be within the unit square.")
         return False, Reason.OUT_OF_BOUNDS
     if _is_overlapping(packing, tol):
-        print("Circles must not overlap.")
         return False, Reason.OVERLAP
     return True, Reason.VALID
 
@@ -76,9 +72,6 @@ def init_parser():
     parser = argparse.ArgumentParser(description="Evaluate circle packing solutions.")
     parser.add_argument("-p", "--program", type=str, required=True, help="Program path")
     parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Enable verbose output"
-    )
-    parser.add_argument(
         "-t",
         "--timeout",
         type=int,
@@ -99,6 +92,10 @@ def print_score(score: float, reason: Reason):
     print(f"<SCORE>{score_str}</SCORE>")
 
 
+def print_artifacts(artifact_dict):
+    print(f"<ARTIFACT>{artifact_dict}</ARTIFACT>")
+
+
 def run_with_timeout(func, timeout):
     def timeout_handler(signum, frame):
         raise TimeoutError("Execution time exceeded the 5-minute limit.")
@@ -117,31 +114,31 @@ def main():
     parser = init_parser()
     args = parser.parse_args()
     program_path = Path(args.program)
-    verbose = args.verbose
     timeout = args.timeout
 
-    with open(program_path, "r") as f:
-        program_content = f.read()
-
     score = 0.0
+    reason = Reason.INVALID_CODE
+    artifact_dict = {}
 
+    # Import the pack_26 function from the provided program
+    sys.path.insert(0, str(program_path.parent))
+    module_name = program_path.stem
     try:
-        local_vars = {}
-        exec(program_content, globals(), local_vars)
-        packing = run_with_timeout(local_vars["pack_26"], timeout)
-        if verbose:
-            print(f"<PACKING>{packing}</PACKING>")
+        module = __import__(module_name)
+        packing = run_with_timeout(module.pack_26, timeout)
+        artifact_dict["packing"] = packing.tolist()
         valid, reason = is_valid(packing)
         if valid:
             score = score_packing(packing)
     except TimeoutError:
         reason = Reason.TIMEOUT
     except Exception as e:
-        print(e)
+        artifact_dict["error"] = str(e)
+        artifact_dict["program_content"] = program_path.read_text()
         reason = Reason.INVALID_CODE
-
-    print_score(score, reason)
-
+    finally:
+        print_score(score, reason)
+        print_artifacts(artifact_dict)
 
 if __name__ == "__main__":
     main()

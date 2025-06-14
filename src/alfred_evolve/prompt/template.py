@@ -1,5 +1,5 @@
 ISLAND_VARIATIONS = [
-    [""],
+    ["", "rewrite"],
     ["explore", "plan", "refactor"],
     ["tweak", "optimize", "simplify"],
 ]
@@ -8,9 +8,9 @@ VARIATIONS = {
     "": "",
     "tweak": (
         "Try to tweak the parameters used in the previous completions to improve the score. "
-        "This might include changing the weights in a weighted sum, adjusting learning rates, "
-        "or modifying other hyperparameters. The goal is to find a better configuration that "
-        "leads to a higher score without changing the overall approach or algorithm significantly."
+        "This might include changing weights, adjusting learning rates, or modifying other hyperparameters. "
+        "The goal is to find a better configuration that leads to a higher score without changing the "
+        "overall approach or algorithm significantly."
     ),
     "explore": (
         "The iterative process has reached a plateau, so we need to explore new ideas to make progress. "
@@ -45,24 +45,33 @@ VARIATIONS = {
         "completions, or outlining a strategy for how to approach the task. The goal is to have a clear "
         "direction for the next steps, which could lead to a higher score."
     ),
+    "rewrite": (
+        "The previous completions have not made significant progress, so it is time to rewrite the code. "
+        "Use a SEARCH/REPLACE block with an empty SEARCH section to replace the entire parent program "
+        "with a new implementation. Don't be afraid to start from scratch and try a completely new approach. "
+        "The goal is to create a fresh implementation that could lead to a higher score, even if it means "
+        "discarding previous work. This could involve significant changes to the code or approach, "
+        "so be creative and think outside the box."
+    ),
 }
 
 PREMABLE = """\
 Act as an expert Python developer. Your job is to make iterative improvements \
-to an existing codebase in order to score highly on a task. You will be \
-provided with a task description, a parent program, and a set of inspiration \
-programs, which are previous attempts at solving the task. The previous \
-programs' scores will also be provided. Your output will be a diff that \
-improves the parent program.\
+to a source file in order to score highly on a task. You will be provided with \
+a task description, a parent program, and a set of inspiration programs, which \
+are previous attempts at solving the task. Your output will be a diff that \
+will be applied to the parent program to create a new program.\
 """
 EPILOGUE = """\
 Your output should consist of two parts: your reasoning for the changes and \
-the diff itself. The reasoning should be a concise explanation of the changes \
-you made and why you believe they will improve the program's score. The diff \
+the diff itself. The reasoning should be a concise bullet-point list of the \
+reasons why you believe the diff will improve the program's score. The diff \
 should consist of SEARCH/REPLACE blocks that can be applied to the parent, and \
 no other text. One diff may contain multiple SEARCH/REPLACE blocks, separated \
 by newlines. The resulting program should be a valid Python program that will \
-attempt to solve the task.
+attempt to solve the task. It is important that the diff and code are valid, \
+as invalid outputs will waste resources and time. Your response is limited to \
+a maximum of 8192 tokens, so your changes must be small and focused.
 
 SEARCH/REPLACE block rules:
 1. Each SEARCH/REPLACE block consists of a SEARCH section and a REPLACE section
@@ -73,13 +82,14 @@ REPLACE`.
 uniquely identifiable within the parent program.
 4. The REPLACE section contains the code that should replace the SEARCH code.
 5. Both sections operate on a line-by-line basis.
+6. A special case is when the SEARCH section is empty, which means the entire \
+parent program should be replaced with the REPLACE section.
 
-SEARCH/REPLACE block example:
+Example #1:
 <PARENT>
 def main():
     print("Hello, world!")
 </PARENT>
-
 <DIFF>
 <<<<<<<< SEARCH
     print("Hello, world!")
@@ -87,6 +97,18 @@ def main():
     print("Aloha, world!")
 >>>>>>>> REPLACE
 </DIFF>
+
+Example #2:
+<PARENT>
+def main():
+    print("Hello, world!")
+</PARENT>
+<DIFF>
+<<<<<<<< SEARCH
+========
+if __name__ == "__main__":
+    print("Aloha, world!")
+>>>>>>>> REPLACE
 
 Your output should be formatted as follows:
 
