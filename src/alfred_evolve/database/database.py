@@ -2,6 +2,7 @@ import random
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Optional
+
 from sqlalchemy import func
 
 from alfred_evolve.database.base import Program, Score
@@ -153,26 +154,56 @@ class ProgramDatabase(SQLDatabase):
 
     def migrate(self, k: int):
         """Migrate the topk programs to the next island."""
+        if self.cfg.n_islands < 2:
+            print("Migration skipped: only one island present.")
+            return
         for i in range(self.cfg.n_islands):
             topk_programs = self.get_topk_programs(k=k, island_id=i)
             if not topk_programs:
                 continue
-
+            prev_island = (i - 1) % self.cfg.n_islands
             next_island = (i + 1) % self.cfg.n_islands
             for program in topk_programs:
-                copy_program = Program(
-                    island_id=next_island,
-                    content=program.content,
-                    prompt=program.prompt,
-                    diff=program.diff,
-                    parent_id=program.id,
-                    reasoning=program.reasoning,
+                self._migrate_program(
+                    program_id=program.id, target_island_id=next_island
                 )
-                self.add(copy_program)
+                self._migrate_program(
+                    program_id=program.id, target_island_id=prev_island
+                )
 
-            print(
-                f"Migrated {len(topk_programs)} programs from island {i}->{next_island}."
+    def _migrate_program(self, program_id: int, target_island_id: int):
+        program = self.get(Program, filter_by={"id": program_id})
+        if program is None:
+            raise ValueError(f"Program with ID {program_id} not found.")
+        if program.island_id == target_island_id:
+            raise ValueError(
+                f"Program with ID {program_id} is already in island {target_island_id}."
             )
+        # Create a copy of the program for the target island
+        copy_program = Program(
+            island_id=target_island_id,
+            content=program.content,
+            prompt=program.prompt,
+            diff=program.diff,
+            parent_id=program.id,
+            reasoning=program.reasoning,
+        )
+        copy_scores = [
+            Score(name=score.name, value=score.value, program_id=copy_program.id)
+            for score in self.get_n(Score, filter_by={"program_id": program.id})
+        ]
+        # Add the copied program and its scores to the database
+        try:
+            copy_program_id = self.add(copy_program)
+            for score in copy_scores:
+                score.program_id = copy_program_id
+                self.add(score)
+            print(
+                f"Program {program_id} copy-migrated from island {program.island_id}->{target_island_id}."
+            )
+        except Exception as e:
+            print(f"Error migrating program {program_id}: {e}")
+            raise
 
     def add_program(
         self,

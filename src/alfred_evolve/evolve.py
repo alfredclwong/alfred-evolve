@@ -123,24 +123,7 @@ class AlfredEvolve:
         """
         completed_iterations = 0
 
-        # initial_programs = ray.get(self.program_database_actor.get_programs.remote())
-        # if not initial_programs:
-        #     # If the program database is empty, initialize it with the initial program content
-        #     initial_program_content = self.cfg.program_database_config.initial_program_content
-        #     initial_scores, initial_artifacts = self.evaluator.evaluate(initial_program_content)
-        #     print(initial_scores)
-        #     print(initial_artifacts)
-        #     for i in range(self.cfg.program_database_config.n_islands):
-        #         ray.get(
-        #             self.program_database_actor.add_program.remote(
-        #                 parent=Program(island_id=i),
-        #                 inspiration_ids=[],
-        #                 prompt="Initial program",
-        #                 diff=">>>>>>>> SEARCH\n========\n<<<<<<<< REPLACE",
-        #                 reasoning="Initial program",
-        #                 score_dict=initial_scores,
-        #             )
-        #         )
+        # TODO add a check for evaluating unscored programs
 
         for _ in range(
             min(

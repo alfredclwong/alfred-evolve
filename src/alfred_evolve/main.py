@@ -9,6 +9,10 @@ from alfred_evolve.prompt.sampler import PromptSamplerConfig
 
 def main():
     eval_timeout = 600
+    initial_program_path = Path("src") / "examples" / "circle_packing" / "initial_program.py"
+    initial_program_content = initial_program_path.read_text()
+    n_islands = 4
+
     task = f"""\
 You are an expert mathematician specializing in circle packing problems and \
 computational geometry. Your task is to improve a constructor function that \
@@ -23,15 +27,13 @@ This is a difficult problem so hard-coded solutions will not work well. \
 The current best score found by other researchers is 2.635. \
 The Python environment has the following libraries available: numpy, scipy.\
 """
-    initial_program_path = Path("src") / "examples" / "circle_packing" / "initial_program.py"
-    initial_program_content = initial_program_path.read_text()
 
     config = Config(
-        max_concurrent_builds=1,
-        max_concurrent_generates=3,
-        max_concurrent_evaluates=8,
-        max_pending_generates=1,
-        max_pending_evaluates=6,
+        max_concurrent_builds=1,  # Not a bottleneck
+        max_concurrent_generates=4,  # Arbitrary, limits the rate of API calls
+        max_concurrent_evaluates=8,  # Adjust based on your system's capabilities
+        max_pending_generates=1,  # Not a bottleneck
+        max_pending_evaluates=n_islands * 2,  # Max two programs per island state generated at a time
         prompt_sampler_config=PromptSamplerConfig(task=task),
         diff_generator_config=DiffGeneratorConfig(
             api_key_path=Path("secret.txt"),
@@ -51,7 +53,7 @@ The Python environment has the following libraries available: numpy, scipy.\
         ),
         program_database_config=ProgramDatabaseConfig(
             url="sqlite:///data/programs.db",
-            n_islands=3,
+            n_islands=4,
             initial_program_content=initial_program_content,
             n_inspirations_best=3,
             n_inspirations_prev=1,
