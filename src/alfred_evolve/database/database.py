@@ -46,6 +46,7 @@ class ProgramDatabase(SQLDatabase):
                 program_id = self.add(
                     Program(
                         island_id=i,
+                        generation_id=0,
                         content=cfg.initial_program_content,
                         reasoning="Initial program",
                     )
@@ -58,24 +59,17 @@ class ProgramDatabase(SQLDatabase):
     def _next_island(self):
         self.current_island = (self.current_island + 1) % self.cfg.n_islands
 
-    def num_generations(self) -> int:
-        # Get the program count of the largest island
+    def _get_island_generation(self, island_id: int) -> int:
         with self.get_session() as session:
-            counts = (
-                session.query(Program.island_id, func.count(Program.id).label("count"))
-                .group_by(Program.island_id)
-                .all()
+            return (
+                session.query(func.max(Program.generation_id))
+                .filter(Program.island_id == island_id)
+                .scalar()
+                or 0
             )
-            max_count = max((getattr(c, "count", 0) for c in counts), default=0)
-        return max_count
 
     def sample(self) -> tuple[Program, list[Program]]:
-        print(
-            f"Sampling island {self.current_island} at generation {self.num_generations()}."
-        )
-
-        if self.num_generations() % self.cfg.migration_frequency == 0:
-            self.migrate(k=self.cfg.migration_k)
+        self.migrate()
 
         parent = self._sample(
             k=1, scope=SampleScope.ISLAND, strategy=SampleStrategy.BEST, parent=None
@@ -152,24 +146,33 @@ class ProgramDatabase(SQLDatabase):
                 query = query.limit(k)
             return query.all()
 
-    def migrate(self, k: int):
-        """Migrate the topk programs to the next island."""
-        if self.cfg.n_islands < 2:
-            print("Migration skipped: only one island present.")
+    def migrate(self):
+        """If the current island is due for migration, migrate elites to the neighbouring islands."""
+        if self.cfg.n_islands < 2 or self.cfg.migration_frequency <= 0:
+            print("Migration is disabled or not applicable. Skipping...")
             return
-        for i in range(self.cfg.n_islands):
-            topk_programs = self.get_topk_programs(k=k, island_id=i)
-            if not topk_programs:
-                continue
-            prev_island = (i - 1) % self.cfg.n_islands
-            next_island = (i + 1) % self.cfg.n_islands
-            for program in topk_programs:
-                self._migrate_program(
-                    program_id=program.id, target_island_id=next_island
-                )
-                self._migrate_program(
-                    program_id=program.id, target_island_id=prev_island
-                )
+        current_generation = self._get_island_generation(self.current_island)
+        if current_generation > 0 and current_generation % self.cfg.migration_frequency == 0:
+            prev_island = (self.current_island - 1) % self.cfg.n_islands
+            next_island = (self.current_island + 1) % self.cfg.n_islands
+            elites = self.get_topk_programs(
+                k=self.cfg.migration_k, island_id=self.current_island
+            )
+            if not elites:
+                print("No elites to migrate. Skipping...")
+                return
+            print(
+                f"\033[92mMigrating {len(elites)} elites from island {self.current_island} "
+                f"to islands {prev_island} and {next_island}.\033[0m"
+            )
+            for program in elites:
+                try:
+                    self._migrate_program(program.id, prev_island)
+                    self._migrate_program(program.id, next_island)
+                except ValueError as e:
+                    print(f"Migration error for program {program.id}: {e}")
+                except Exception as e:
+                    print(f"Unexpected error during migration: {e}")
 
     def _migrate_program(self, program_id: int, target_island_id: int):
         program = self.get(Program, filter_by={"id": program_id})
@@ -182,6 +185,7 @@ class ProgramDatabase(SQLDatabase):
         # Create a copy of the program for the target island
         copy_program = Program(
             island_id=target_island_id,
+            generation_id=program.generation_id + 1,
             content=program.content,
             prompt=program.prompt,
             diff=program.diff,
@@ -217,6 +221,7 @@ class ProgramDatabase(SQLDatabase):
     ):
         child = Program(
             island_id=parent.island_id,
+            generation_id=parent.generation_id + 1,
             content=apply_diff(parent.content, diff),
             prompt=prompt,
             diff=diff,

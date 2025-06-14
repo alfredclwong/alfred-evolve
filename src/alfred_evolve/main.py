@@ -33,7 +33,8 @@ The Python environment has the following libraries available: numpy, scipy.\
         max_concurrent_generates=4,  # Arbitrary, limits the rate of API calls
         max_concurrent_evaluates=8,  # Adjust based on your system's capabilities
         max_pending_generates=1,  # Not a bottleneck
-        max_pending_evaluates=n_islands * 2,  # Max two programs per island state generated at a time
+        max_pending_evaluates=n_islands,  # This is the bottleneck, but we want to wait for some
+                                          # evaluations to finish before generating more diffs
         prompt_sampler_config=PromptSamplerConfig(task=task),
         diff_generator_config=DiffGeneratorConfig(
             api_key_path=Path("secret.txt"),
@@ -53,23 +54,20 @@ The Python environment has the following libraries available: numpy, scipy.\
         ),
         program_database_config=ProgramDatabaseConfig(
             url="sqlite:///data/programs.db",
-            n_islands=4,
+            n_islands=6,
             initial_program_content=initial_program_content,
             n_inspirations_best=3,
             n_inspirations_prev=1,
             n_inspirations_rand=1,
             migration_k=1,
-            migration_frequency=20,
+            migration_frequency=25,
         ),
     )
 
     alfred_evolve = AlfredEvolve(config)
-    completed_iterations, programs = alfred_evolve.run(num_iterations=100)
+    n_generations_to_run = 400
+    completed_iterations, programs = alfred_evolve.run(num_iterations=n_islands * n_generations_to_run)
     print(f"Completed {completed_iterations} iterations.")
-
-    print("Programs:")
-    for program in programs:
-        print(program)
 
 
 if __name__ == "__main__":

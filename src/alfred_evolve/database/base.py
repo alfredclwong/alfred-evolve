@@ -18,6 +18,7 @@ class Program(Base):
     __tablename__ = "program"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     island_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    generation_id: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(String, nullable=False, default="")
     reasoning: Mapped[str] = mapped_column(String, nullable=False, default="")
     prompt: Mapped[Optional[str]] = mapped_column(String, nullable=True)
