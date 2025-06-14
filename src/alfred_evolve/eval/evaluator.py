@@ -12,6 +12,7 @@ class EvaluatorConfig:
     eval_file: Path
     cpu_limit: str
     memory_limit: str
+    timeout: int
 
 
 class Evaluator:
@@ -33,6 +34,7 @@ class Evaluator:
                 name=name,
                 program_content=program_content,
                 eval_file=self.cfg.eval_file,
+                timeout=self.cfg.timeout,
             )
         except Exception as e:
             print(f"Error during evaluation: {e}")

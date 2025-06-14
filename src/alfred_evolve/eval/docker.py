@@ -8,8 +8,8 @@ import uuid
 from alfred_evolve.util import extract_tagged_text
 
 
-def run(name: str, program_content: str, eval_file: Path) -> tuple[dict[str, float], Optional[str]]:
-    eval_result = _eval(name, program_content, eval_file)
+def run(name: str, program_content: str, eval_file: Path, timeout: int) -> tuple[dict[str, float], Optional[str]]:
+    eval_result = _eval(name, program_content, eval_file, timeout)
     score_str = extract_tagged_text(eval_result, "SCORE")
     artifacts = extract_tagged_text(eval_result, "ARTIFACT")
     score_dict = {}
@@ -51,7 +51,7 @@ def stop(name: str):
     subprocess.run(["docker", "stop", name], check=True)
 
 
-def _eval(name: str, program_content: str, eval_file: Path) -> str:
+def _eval(name: str, program_content: str, eval_file: Path, timeout: int) -> str:
     eval_path = Path("eval.py")
     _cp(name, eval_file, eval_path)
     program_path = Path("program.py")
@@ -67,6 +67,8 @@ def _eval(name: str, program_content: str, eval_file: Path) -> str:
                 str(eval_path),
                 "-p",
                 str(program_path),
+                "-t",
+                str(timeout),
             ],
             check=True,
             capture_output=True,

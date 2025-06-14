@@ -8,7 +8,8 @@ from alfred_evolve.prompt.sampler import PromptSamplerConfig
 
 
 def main():
-    task = """\
+    eval_timeout = 600
+    task = f"""\
 You are an expert mathematician specializing in circle packing problems and \
 computational geometry. Your task is to improve a constructor function that \
 produces a specific arrangement of 26 circles in a unit square, such that none \
@@ -16,6 +17,7 @@ of them overlap. The function `pack_26()` should return a numpy array with 26 \
 (x, y, r) rows, where (x, y) is the center of a circle and r is its radius. \
 The score will be the sum of the radii of all circles, which you should maximise. \
 Invalid packings, where circles overlap or extend beyond the unit square, will score 0. \
+Functions which take more than {eval_timeout} seconds to run will time out and score 0. \
 The code for checking overlaps and bounds works with a numerical tolerance of 1e-9. \
 This is a difficult problem so hard-coded solutions will not work well. \
 The current best score found by other researchers is 2.635. \
@@ -27,9 +29,9 @@ The Python environment has the following libraries available: numpy, scipy.\
     config = Config(
         max_concurrent_builds=1,
         max_concurrent_generates=3,
-        max_concurrent_evaluates=10,
-        max_pending_generates=1,  # sampling and building is fast, so do jit
-        max_pending_evaluates=10,
+        max_concurrent_evaluates=6,
+        max_pending_generates=1,
+        max_pending_evaluates=6,
         prompt_sampler_config=PromptSamplerConfig(task=task),
         diff_generator_config=DiffGeneratorConfig(
             api_key_path=Path("secret.txt"),
@@ -45,6 +47,7 @@ The Python environment has the following libraries available: numpy, scipy.\
             eval_file=Path("src") / "examples" / "circle_packing" / "eval.py",
             cpu_limit="1",
             memory_limit="1g",
+            timeout=eval_timeout,
         ),
         program_database_config=ProgramDatabaseConfig(
             url="sqlite:///data/programs.db",

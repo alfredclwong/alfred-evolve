@@ -75,8 +75,8 @@ def init_parser():
         "-t",
         "--timeout",
         type=int,
-        default=300,
-        help="Timeout in seconds for the packing function (default: 300 seconds)",
+        required=True,
+        help="Timeout in seconds for the packing function",
     )
     return parser
 
