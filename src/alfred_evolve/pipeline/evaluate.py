@@ -17,26 +17,48 @@ class ProgramEvaluatorConfig:
     cpu_limit: str
     memory_limit: str
     timeout: int
+    n_eval_runs: int
 
 
 def evaluate_program(
     program_content: str, cfg: ProgramEvaluatorConfig
 ) -> tuple[dict[str, float], dict[str, str]]:
+    score_dicts = []
+    artifacts_dicts = []
+
     name = docker_utils.start(
         base_name=cfg.base_name,
         image=cfg.image,
         memory_limit=cfg.memory_limit,
         cpu_limit=cfg.cpu_limit,
     )
-
     try:
-        return docker_utils.run(
-            container_name=name,
-            program_content=program_content,
-            eval_file_path=cfg.eval_file_path,
-            timeout=cfg.timeout,
-        )
+        for _ in range(cfg.n_eval_runs):
+            score_dict, artifacts_dict = docker_utils.run(
+                container_name=name,
+                program_content=program_content,
+                eval_file_path=cfg.eval_file_path,
+                timeout=cfg.timeout,
+            )
+            score_dicts.append(score_dict)
+            artifacts_dicts.append(artifacts_dict)
     except Exception:
         raise
     finally:
         docker_utils.stop(name=name)
+
+    # Aggregate scores and artifacts
+    aggregated_scores = {}
+    aggregated_artifacts = {}
+    for score_dict in score_dicts:
+        for key, value in score_dict.items():
+            score = aggregated_scores.get(key, float("inf"))
+            aggregated_scores[key] = min(score, value)
+    aggregated_scores["MAX_SCORE"] = max(
+        score_dict.get("SCORE", 0.0) for score_dict in score_dicts
+    )
+    for i, artifacts_dict in enumerate(artifacts_dicts):
+        for key, value in artifacts_dict.items():
+            aggregated_artifacts[f"{key}_{i}"] = value
+
+    return aggregated_scores, aggregated_artifacts

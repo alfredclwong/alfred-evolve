@@ -158,8 +158,8 @@ def pack_26() -> np.ndarray:
     best_score = -np.inf
     best_packing = None
 
-    N_TRIALS = 500 # Increased trials
-    MAX_ITER_PER_TRIAL = 2000 # Increased iterations per trial
+    N_TRIALS = 1000 # Increased trials
+    MAX_ITER_PER_TRIAL = 1000 # Increased iterations per trial
 
     # Initial Strategy: Seed with a known pattern for fewer circles, then fill
     # A common pattern for 5 large circles is a central one and four in corners/middles.

@@ -10,19 +10,18 @@ from alfred_evolve.prompt_template import EPILOGUE, PREMABLE, VARIATIONS
 
 
 def main():
-    eval_timeout = 600
+    eval_timeout = 60
+    n_eval_runs = 3
     task = f"""\
-You are an expert mathematician specializing in circle packing problems and \
-computational geometry. Your task is to improve a constructor function that \
-produces a specific arrangement of 26 circles in a unit square, such that none \
-of them overlap. The function `pack_26()` should return a numpy array with 26 \
-(x, y, r) rows, where (x, y) is the center of a circle and r is its radius. \
+You are an expert mathematician specializing in circle packing problems and computational geometry. \
+Your task is to improve a constructor function that produces a specific arrangement of 26 circles \
+in a unit square, such that none of them overlap. The function `pack_26()` should return a numpy \
+array with 26 (x, y, r) rows, where (x, y) is the center of a circle and r is its radius. \
 The score will be the sum of the radii of all circles, which you should maximise. \
+The score will be calculated as the minimum of {n_eval_runs} runs of the function. \
 Invalid packings, where circles overlap or extend beyond the unit square, will score 0. \
 Functions which take more than {eval_timeout} seconds to run will time out and score 0. \
 The code for checking overlaps and bounds works with a numerical tolerance of 1e-9. \
-This is a difficult problem so hard-coded solutions will not work well. \
-The current best score found by other researchers is 2.635. \
 The Python environment has the following libraries available: numpy, scipy.\
 """
 
@@ -36,12 +35,13 @@ The Python environment has the following libraries available: numpy, scipy.\
         cpu_limit="1",
         memory_limit="1g",
         timeout=eval_timeout,
+        n_eval_runs=n_eval_runs,
     )
     # initial_program_scores, initial_program_artifacts = evaluate_program(
     #     initial_program_content, program_evaluator_cfg
     # )
 
-    n_islands = 4
+    n_islands = 3
 
     cfg = AlfredEvolveConfig(
         n=n_islands * 200,
@@ -78,6 +78,7 @@ The Python environment has the following libraries available: numpy, scipy.\
                     "OVERLAP_CHECK": 0.0,
                     "VALID_CHECK": 0.0,
                     "SCORE": 0.0,
+                    "MAX_SCORE": 0.0,
                 },
                 initial_program_artifacts={},
                 parent_sample_config=SampleConfig(
@@ -87,7 +88,7 @@ The Python environment has the following libraries available: numpy, scipy.\
                 ),
                 inspiration_sample_configs=[
                     SampleConfig(
-                        n=3,
+                        n=4,
                         scope=SampleScope.ISLAND,
                         strategy=SampleStrategy.BEST,
                     ),
@@ -102,10 +103,10 @@ The Python environment has the following libraries available: numpy, scipy.\
                         strategy=SampleStrategy.RAND,
                     ),
                 ],
-                population_size=60,
+                population_size=50,
                 score_key="SCORE",
                 migration_k=1,
-                migration_frequency=20,
+                migration_frequency=25,
                 max_parallel_tasks=2,
             )
             for _ in range(n_islands)
