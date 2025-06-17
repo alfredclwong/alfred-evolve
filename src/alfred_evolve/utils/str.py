@@ -1,30 +1,39 @@
+import json
 import re
-from typing import Optional
 
 
-def extract_tagged_text(llm_output: str, tag: str) -> Optional[str]:
+def parse_json(json_string: str) -> dict[str, str]:
+    try:
+        parsed = json.loads(json_string)
+        if not isinstance(parsed, dict):
+            raise ValueError("Parsed JSON is not a dictionary")
+        return {str(k): str(v) for k, v in parsed.items()}
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"Failed to parse JSON string: {json_string}. Error: {e}"
+        ) from e
+
+
+def extract_tagged_text(llm_output: str, tag: str) -> str:
     start = f"<{tag}>"
     end = f"</{tag}>"
     if start not in llm_output or end not in llm_output:
-        return None
+        raise ValueError(
+            f"LLM output does not contain expected tags {start} and {end}:\n{llm_output}"
+        )
     start_index = llm_output.index(start) + len(start)
     end_index = llm_output.index(end)
     text = llm_output[start_index:end_index]
     return text
 
 
-def apply_diff(program_content: str, diff_content: str) -> Optional[str]:
-    return _apply_diff_search_replace(program_content, diff_content)
-
-
-def _apply_diff_search_replace(program_content: str, diff_content: str) -> Optional[str]:
+def apply_diff_search_replace(program_content: str, diff_content: str) -> str:
     search_replace_pattern = re.compile(
         r"<<<<<<<< SEARCH\n(.*?)\n========\n(.*?)\n>>>>>>>> REPLACE", re.DOTALL
     )
     matches = search_replace_pattern.findall(diff_content)
     if not matches:
-        print("No valid SEARCH/REPLACE blocks found in diff content.")
-        return None
+        raise ValueError(f"No valid search/replace patterns found in the diff content:\n{diff_content}")
 
     if len(matches) == 1 and matches[0][0] == "":
         # Special case: empty SEARCH means replace the entire program

@@ -3,23 +3,24 @@
 # of the radii of the circles, while ensuring that no two circles overlap
 
 import argparse
+import json
 import signal
+import sys
 from enum import Enum, auto
 from pathlib import Path
 
 import numpy as np
-import sys
 
 
 class Reason(Enum):
-    VALID = auto()
+    INVALID_CODE = auto()
+    TIMEOUT = auto()
     INVALID_TYPE = auto()
     INVALID_LENGTH = auto()
     INVALID_CIRCLE = auto()
     OUT_OF_BOUNDS = auto()
     OVERLAP = auto()
-    TIMEOUT = auto()
-    INVALID_CODE = auto()
+    VALID = auto()
 
 
 def is_valid(packing: np.ndarray, tol: float = 1e-9) -> tuple[bool, Reason]:
@@ -82,18 +83,21 @@ def init_parser():
 
 
 def print_score(score: float, reason: Reason):
-    score_dict = {
-        f"{r.name}_CHECK": 0.0 if r == reason else 1.0
-        for r in Reason
-        if r != Reason.VALID
-    }
+    # Cascade evaluation: if the program is invalid for an earlier reason, all subsequent checks are scored as 0.
+    failed = False
+    score_dict = {}
+    for r in Reason:
+        if r == reason and r != Reason.VALID:
+            failed = True
+        score_dict[f"{r.name}_CHECK"] = 0.0 if failed else 1.0
     score_dict["SCORE"] = score
-    score_str = ", ".join(f"{key}: {value}" for key, value in score_dict.items())
+    score_str = json.dumps(score_dict, indent=2)
     print(f"<SCORE>{score_str}</SCORE>")
 
 
 def print_artifacts(artifact_dict):
-    print(f"<ARTIFACT>{artifact_dict}</ARTIFACT>")
+    artifact_str = json.dumps(artifact_dict, indent=2)
+    print(f"<ARTIFACT>{artifact_str}</ARTIFACT>")
 
 
 def run_with_timeout(func, timeout):
@@ -139,6 +143,7 @@ def main():
     finally:
         print_score(score, reason)
         print_artifacts(artifact_dict)
+
 
 if __name__ == "__main__":
     main()

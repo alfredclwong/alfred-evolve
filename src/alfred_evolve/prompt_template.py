@@ -1,10 +1,3 @@
-ISLAND_VARIATIONS = [
-    # ["", "rewrite"],
-    # ["explore", "plan", "refactor"],
-    # ["tweak", "optimize", "simplify"],
-    ["explore", "plan", "refactor", "optimize", "simplify"],
-]
-
 VARIATIONS = {
     "": "",
     "tweak": (
@@ -55,7 +48,6 @@ VARIATIONS = {
         "so be creative and think outside the box."
     ),
 }
-
 PREMABLE = """\
 Act as an expert Python developer. Your job is to make iterative improvements \
 to a source file in order to score highly on a task. You will be provided with \

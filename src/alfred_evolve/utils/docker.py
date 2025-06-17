@@ -1,23 +1,23 @@
 import subprocess
 import tempfile
 import time
+import uuid
 from pathlib import Path
 from typing import Optional
-import uuid
 
-from alfred_evolve.util import extract_tagged_text
+from alfred_evolve.utils.str import extract_tagged_text, parse_json
 
 
-def run(name: str, program_content: str, eval_file: Path, timeout: int) -> tuple[dict[str, float], Optional[str]]:
-    eval_result = _eval(name, program_content, eval_file, timeout)
+def run(
+    program_content: str, container_name: str, eval_file_path: Path, timeout: int
+) -> tuple[dict[str, float], dict[str, str]]:
+    eval_result = _eval(container_name, program_content, eval_file_path, timeout)
     score_str = extract_tagged_text(eval_result, "SCORE")
-    artifacts = extract_tagged_text(eval_result, "ARTIFACT")
-    score_dict = {}
-    if score_str:
-        score_dict = {
-            k: float(v) for k, v in (item.split(": ") for item in score_str.split(", "))
-        }
-    return score_dict, artifacts
+    score_dict = parse_json(score_str)
+    score_dict = {k: float(v) for k, v in score_dict.items()}
+    artifacts_str = extract_tagged_text(eval_result, "ARTIFACT")
+    artifacts_dict = parse_json(artifacts_str)
+    return score_dict, artifacts_dict
 
 
 def start(
@@ -30,7 +30,7 @@ def start(
     start = time.time()
     while True:
         try:
-            name = f"{base_name}_{uuid.uuid4().hex[:4]}"
+            name = f"{base_name}_{uuid.uuid4()}"
             args = ["docker", "run", "-it", "--rm", "--name", name]
             if memory_limit:
                 args.extend(["--memory", memory_limit])
@@ -40,7 +40,7 @@ def start(
             subprocess.run(args, check=True)
             _wait_for_ready(name)
             return name
-        except subprocess.CalledProcessError as e:
+        except subprocess.CalledProcessError:
             if time.time() - start > timeout:
                 raise TimeoutError(
                     f"Failed to start Docker container {base_name} within {timeout} seconds."
@@ -51,9 +51,9 @@ def stop(name: str):
     subprocess.run(["docker", "stop", name], check=True)
 
 
-def _eval(name: str, program_content: str, eval_file: Path, timeout: int) -> str:
-    eval_path = Path("eval.py")
-    _cp(name, eval_file, eval_path)
+def _eval(name: str, program_content: str, eval_file_path: Path, timeout: int) -> str:
+    docker_eval_file_path = Path("eval.py")
+    _cp(name, eval_file_path, docker_eval_file_path)
     program_path = Path("program.py")
     _write(name, program_path, program_content)
     result_str = ""
@@ -64,7 +64,7 @@ def _eval(name: str, program_content: str, eval_file: Path, timeout: int) -> str
                 "exec",
                 name,
                 "python3",
-                str(eval_path),
+                str(docker_eval_file_path),
                 "-p",
                 str(program_path),
                 "-t",
@@ -76,11 +76,12 @@ def _eval(name: str, program_content: str, eval_file: Path, timeout: int) -> str
         )
         result_str = result.stdout
     except subprocess.CalledProcessError as e:
-        result = ("<ARTIFACT>"
-                f"docker_error: {e}\n"
-                f"docker_cmd: {e.cmd}\n"
-                f"docker_out: {e.output}\n"
-                "</ARTIFACT>"
+        result = (
+            "<ARTIFACT>"
+            f"docker_error: {e}\n"
+            f"docker_cmd: {e.cmd}\n"
+            f"docker_out: {e.output}\n"
+            "</ARTIFACT>"
         )
     finally:
         return result_str
@@ -97,7 +98,7 @@ def _cp(name: str, src: Path, dest: Path):
         ],
         check=True,
     )
-    print(f"Copied {src} to {dest} in Docker container {name}.")
+    # print(f"Copied {src} to {dest} in Docker container {name}.")
 
 
 def _write(name: str, docker_path: Path, completion: str):

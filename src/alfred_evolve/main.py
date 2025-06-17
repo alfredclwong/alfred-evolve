@@ -1,18 +1,16 @@
 from pathlib import Path
 
-from alfred_evolve.database.database import ProgramDatabaseConfig
-from alfred_evolve.diff.generator import DiffGeneratorConfig
-from alfred_evolve.eval.evaluator import EvaluatorConfig
-from alfred_evolve.evolve import AlfredEvolve, Config
-from alfred_evolve.prompt.sampler import PromptSamplerConfig
+from alfred_evolve.evolve import AlfredEvolve, AlfredEvolveConfig
+from alfred_evolve.island import IslandConfig, SampleConfig, SampleScope, SampleStrategy
+from alfred_evolve.pipeline.build import PromptBuilderConfig
+from alfred_evolve.pipeline.evaluate import ProgramEvaluatorConfig, evaluate_program
+from alfred_evolve.pipeline.generate import LLMConfig
+from alfred_evolve.pipeline.pipeline import PipelineConfig
+from alfred_evolve.prompt_template import EPILOGUE, PREMABLE, VARIATIONS
 
 
 def main():
     eval_timeout = 600
-    initial_program_path = Path("src") / "examples" / "circle_packing" / "initial_program.py"
-    initial_program_content = initial_program_path.read_text()
-    n_islands = 4
-
     task = f"""\
 You are an expert mathematician specializing in circle packing problems and \
 computational geometry. Your task is to improve a constructor function that \
@@ -28,46 +26,93 @@ The current best score found by other researchers is 2.635. \
 The Python environment has the following libraries available: numpy, scipy.\
 """
 
-    config = Config(
-        max_concurrent_builds=1,  # Not a bottleneck
-        max_concurrent_generates=2,  # Arbitrary, limits the rate of API calls
-        max_concurrent_evaluates=4,  # Adjust based on your system's capabilities
-        max_pending_generates=1,  # Not a bottleneck
-        max_pending_evaluates=n_islands,  # This is the bottleneck, but we want to wait for some
-                                          # evaluations to finish before generating more diffs
-        prompt_sampler_config=PromptSamplerConfig(task=task),
-        diff_generator_config=DiffGeneratorConfig(
-            api_key_path=Path("secret.txt"),
-            # model_name="google/gemma-3-27b-it:free",
-            model_name="google/gemini-2.5-flash-preview-05-20",
-            temperature=0.7,
-            max_tokens=8192,
-            providers=["google-ai-studio"],
-        ),
-        evaluator_pool_config=EvaluatorConfig(
-            container_name="evaluator_container",
-            image="circle-packing:latest",
-            eval_file=Path("src") / "examples" / "circle_packing" / "eval.py",
-            cpu_limit="1",
-            memory_limit="1g",
-            timeout=eval_timeout,
-        ),
-        program_database_config=ProgramDatabaseConfig(
-            url="sqlite:///data/programs.db",
-            n_islands=6,
-            initial_program_content=initial_program_content,
-            n_inspirations_best=3,
-            n_inspirations_prev=1,
-            n_inspirations_rand=1,
-            migration_k=1,
-            migration_frequency=5,
-        ),
-    )
+    initial_program_path = Path("src/examples/circle_packing/initial_program.py")
+    initial_program_content = initial_program_path.read_text()
 
-    alfred_evolve = AlfredEvolve(config)
-    n_generations_to_run = 1000
-    completed_iterations, programs = alfred_evolve.run(num_iterations=n_islands * n_generations_to_run)
-    print(f"Completed {completed_iterations} iterations.")
+    program_evaluator_cfg = ProgramEvaluatorConfig(
+        base_name="circle_packing",
+        image="circle-packing:latest",
+        eval_file_path=Path("src/examples/circle_packing/eval.py"),
+        cpu_limit="1",
+        memory_limit="1g",
+        timeout=eval_timeout,
+    )
+    # initial_program_scores, initial_program_artifacts = evaluate_program(
+    #     initial_program_content, program_evaluator_cfg
+    # )
+
+    n_islands = 4
+
+    cfg = AlfredEvolveConfig(
+        n=n_islands * 200,
+        db_url="data/programs.db",
+        api_key_path=Path("secret.txt"),
+        pipeline_cfg=PipelineConfig(
+            prompt_builder_cfg=PromptBuilderConfig(
+                preamble=PREMABLE,
+                task=task,
+                epilogue=EPILOGUE,
+                variations=VARIATIONS,
+            ),
+            llm_cfg=LLMConfig(
+                model_name="google/gemini-2.5-flash-preview-05-20",
+                temperature=0.7,
+                max_tokens=8192,
+                cost_in=0.15e-6,
+                cost_out=0.60e-6,
+            ),
+            program_evaluator_cfg=program_evaluator_cfg,
+        ),
+        island_cfgs=[
+            IslandConfig(
+                initial_program_content=initial_program_content,
+                # initial_program_scores=initial_program_scores,
+                # initial_program_artifacts=initial_program_artifacts,
+                initial_program_scores={
+                    "INVALID_CODE_CHECK": 0.0,
+                    "TIMEOUT_CHECK": 0.0,
+                    "INVALID_TYPE_CHECK": 0.0,
+                    "INVALID_LENGTH_CHECK": 0.0,
+                    "INVALID_CIRCLE_CHECK": 0.0,
+                    "OUT_OF_BOUNDS_CHECK": 0.0,
+                    "OVERLAP_CHECK": 0.0,
+                    "VALID_CHECK": 0.0,
+                    "SCORE": 0.0,
+                },
+                initial_program_artifacts={},
+                parent_sample_config=SampleConfig(
+                    n=1,
+                    scope=SampleScope.ISLAND,
+                    strategy=SampleStrategy.BEST,
+                ),
+                inspiration_sample_configs=[
+                    SampleConfig(
+                        n=3,
+                        scope=SampleScope.ISLAND,
+                        strategy=SampleStrategy.BEST,
+                    ),
+                    SampleConfig(
+                        n=1,
+                        scope=SampleScope.ISLAND,
+                        strategy=SampleStrategy.PREV,
+                    ),
+                    SampleConfig(
+                        n=1,
+                        scope=SampleScope.ISLAND,
+                        strategy=SampleStrategy.RAND,
+                    ),
+                ],
+                population_size=60,
+                score_key="SCORE",
+                migration_k=1,
+                migration_frequency=20,
+                max_parallel_tasks=2,
+            )
+            for _ in range(n_islands)
+        ],
+    )
+    alfred_evolve = AlfredEvolve(cfg)
+    alfred_evolve.evolve()
 
 
 if __name__ == "__main__":
