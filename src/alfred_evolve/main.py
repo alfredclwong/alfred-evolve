@@ -10,15 +10,17 @@ from alfred_evolve.prompt_template import EPILOGUE, PREMABLE, VARIATIONS
 
 
 def main():
-    eval_timeout = 60
-    n_eval_runs = 3
-    task = f"""\
+    eval_timeout = 600
+    n_eval_runs = 1
+    task = """\
 You are an expert mathematician specializing in circle packing problems and computational geometry. \
 Your task is to improve a constructor function that produces a specific arrangement of 26 circles \
 in a unit square, such that none of them overlap. The function `pack_26()` should return a numpy \
 array with 26 (x, y, r) rows, where (x, y) is the center of a circle and r is its radius. \
-The score will be the sum of the radii of all circles, which you should maximise. \
-The score will be calculated as the minimum of {n_eval_runs} runs of the function. \
+The score will be the sum of the radii of all circles, which you should maximise. """
+    if n_eval_runs > 1:
+        task += f"The function will be evaluated {n_eval_runs} times, and the best score will be used."
+    task += """\
 Invalid packings, where circles overlap or extend beyond the unit square, will score 0. \
 Functions which take more than {eval_timeout} seconds to run will time out and score 0. \
 The code for checking overlaps and bounds works with a numerical tolerance of 1e-9. \
@@ -26,6 +28,7 @@ The Python environment has the following libraries available: numpy, scipy.\
 """
 
     initial_program_path = Path("src/examples/circle_packing/initial_program.py")
+    # initial_program_path = Path("src/examples/circle_packing/example_program.py")
     initial_program_content = initial_program_path.read_text()
 
     program_evaluator_cfg = ProgramEvaluatorConfig(
@@ -40,6 +43,19 @@ The Python environment has the following libraries available: numpy, scipy.\
     # initial_program_scores, initial_program_artifacts = evaluate_program(
     #     initial_program_content, program_evaluator_cfg
     # )
+    initial_program_scores = {
+        "INVALID_CODE_CHECK": 0.0,
+        "TIMEOUT_CHECK": 0.0,
+        "INVALID_TYPE_CHECK": 0.0,
+        "INVALID_LENGTH_CHECK": 0.0,
+        "INVALID_CIRCLE_CHECK": 0.0,
+        "OUT_OF_BOUNDS_CHECK": 0.0,
+        "OVERLAP_CHECK": 0.0,
+        "VALID_CHECK": 0.0,
+        "SCORE": 0.0,
+        "MAX_SCORE": 0.0,
+    }
+    initial_program_artifacts = {}
 
     n_islands = 3
 
@@ -66,21 +82,8 @@ The Python environment has the following libraries available: numpy, scipy.\
         island_cfgs=[
             IslandConfig(
                 initial_program_content=initial_program_content,
-                # initial_program_scores=initial_program_scores,
-                # initial_program_artifacts=initial_program_artifacts,
-                initial_program_scores={
-                    "INVALID_CODE_CHECK": 0.0,
-                    "TIMEOUT_CHECK": 0.0,
-                    "INVALID_TYPE_CHECK": 0.0,
-                    "INVALID_LENGTH_CHECK": 0.0,
-                    "INVALID_CIRCLE_CHECK": 0.0,
-                    "OUT_OF_BOUNDS_CHECK": 0.0,
-                    "OVERLAP_CHECK": 0.0,
-                    "VALID_CHECK": 0.0,
-                    "SCORE": 0.0,
-                    "MAX_SCORE": 0.0,
-                },
-                initial_program_artifacts={},
+                initial_program_scores=initial_program_scores,
+                initial_program_artifacts=initial_program_artifacts,
                 parent_sample_config=SampleConfig(
                     n=1,
                     scope=SampleScope.ISLAND,

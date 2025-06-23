@@ -2,6 +2,7 @@ import random
 from bisect import insort_left
 from dataclasses import dataclass
 from enum import Enum, auto
+from typing import Optional
 
 from alfred_evolve.database import Database
 from alfred_evolve.models.data_models import Program
@@ -99,6 +100,15 @@ class ProgramIsland:
             )
 
     def sample(self) -> tuple[Program, list[Program]]:
+        """ Sample step called at the beginning of each evolution loop.
+
+        The parent is sampled based on the parent_sample_config, and inspirations are sampled
+        based on the inspiration_sample_configs. The parent and inspirations are guaranteed to be
+        different programs.
+
+        Returns:
+            A tuple containing the parent program and a list of inspiration programs.
+        """
         parent = self._sample_programs(self.cfg.parent_sample_config)[0]
         inspirations = []
         for sample_config in self.cfg.inspiration_sample_configs:
@@ -119,7 +129,9 @@ class ProgramIsland:
             )
         )
 
-    def _sample_programs(self, sample_config: SampleConfig) -> list[Program]:
+    def _sample_programs(self, sample_config: SampleConfig, score_key: Optional[str] = None) -> list[Program]:
+        if score_key is None:
+            score_key = self.cfg.score_key
         if sample_config.scope == SampleScope.ISLAND:
             if sample_config.strategy == SampleStrategy.BEST:
                 return self.programs_desc[: sample_config.n]
@@ -134,7 +146,7 @@ class ProgramIsland:
         elif sample_config.scope == SampleScope.GLOBAL:
             if sample_config.strategy == SampleStrategy.BEST:
                 return self.db.get_topk_programs(
-                    k=sample_config.n, score_key=self.cfg.score_key
+                    k=sample_config.n, score_key=score_key
                 )
             elif sample_config.strategy == SampleStrategy.RAND:
                 return self.db.get_random_programs(
