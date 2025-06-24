@@ -14,7 +14,7 @@ from alfred_evolve.models.data_models import Program
 from alfred_evolve.pipeline.evaluate import GoogleCloudEvaluatorConfig
 from alfred_evolve.pipeline.pipeline import PipelineConfig
 from alfred_evolve.ray.tasks import run_pipeline_task
-from alfred_evolve.utils.gcp import delete_job, get_job_name
+from alfred_evolve.utils.gcp import delete_job, get_job_name, stop_running_executions
 from alfred_evolve.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -153,4 +153,7 @@ class AlfredEvolve:
                 evaluator_cfg.cpu_limit,
                 evaluator_cfg.memory_limit,
             )
+            logger.info(f"Stopping remaining executions for job {job_name}")
+            stop_running_executions(job_name)
+            logger.info("Deleting job...")
             delete_job(job_name)

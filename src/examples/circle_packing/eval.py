@@ -6,6 +6,7 @@ import builtins
 import json
 import os
 import signal
+import time
 from enum import Enum, auto
 from typing import Callable, TypeVar
 
@@ -72,7 +73,7 @@ def score_packing(packing: np.ndarray) -> float:
     return packing[:, 2].sum()
 
 
-def print_score(score: float, reason: Reason):
+def print_score(score: float, time_remaining_frac: float, reason: Reason):
     # Cascade evaluation: if the program is invalid for an earlier reason, all subsequent checks are scored as 0.
     failed = False
     score_dict = {}
@@ -80,6 +81,7 @@ def print_score(score: float, reason: Reason):
         if r == reason and r != Reason.VALID:
             failed = True
         score_dict[f"{r.name}_CHECK"] = 0.0 if failed else 1.0
+    score_dict["TIME_REMAINING_FRAC"] = round(time_remaining_frac, 4)
     score_dict["SCORE"] = score
     score_str = json.dumps(score_dict, indent=None)
     print(f"<SCORE>{score_str}</SCORE>")
@@ -90,14 +92,18 @@ def print_artifacts(artifact_dict):
     print(f"<ARTIFACT>{artifact_str}</ARTIFACT>")
 
 
-def run_with_timeout(func: Callable[[], T], timeout) -> T:
+def run_with_timeout(func: Callable[[], T], timeout) -> tuple[T, float]:
     def timeout_handler(signum, frame):
         raise TimeoutError("Execution time exceeded the 5-minute limit.")
 
     signal.signal(signal.SIGALRM, timeout_handler)
     signal.alarm(timeout)
     try:
-        return func()
+        start_time = time.time()
+        result = func()
+        elapsed_time = time.time() - start_time
+        time_remaining_frac = (timeout - elapsed_time) / timeout
+        return result, time_remaining_frac
     except TimeoutError:
         raise
     finally:
@@ -152,26 +158,16 @@ def _exec_safe(program_content: str):
 def main():
     timeout = int(os.environ.get("TIME_LIMIT", 300))
     program_content = os.environ.get("PROGRAM_CONTENT", "")
-    safe_globals = _exec_safe(program_content)
-    pack_26 = safe_globals.get("pack_26")
-    if not callable(pack_26):
-        print_score(0.0, Reason.INVALID_CODE)
-        print_artifacts(
-            {
-                "error": "pack_26 is not defined or not callable",
-                "program_content": program_content,
-            }
-        )
-        return
 
     score = 0.0
+    time_remaining_frac = 0.0
     reason = Reason.INVALID_CODE
     artifact_dict = {}
 
     try:
-        packing = run_with_timeout(pack_26, timeout)
-        if not isinstance(packing, np.ndarray):
-            raise TypeError("pack_26 must return a numpy array")
+        safe_globals = _exec_safe(program_content)
+        pack_26 = safe_globals.get("pack_26")
+        packing, time_remaining_frac = run_with_timeout(pack_26, timeout)
         artifact_dict["packing"] = packing.tolist()
         valid, reason = is_valid(packing)
         if valid:
@@ -183,7 +179,7 @@ def main():
         artifact_dict["program_content"] = program_content
         reason = Reason.INVALID_CODE
     finally:
-        print_score(score, reason)
+        print_score(score, time_remaining_frac, reason)
         print_artifacts(artifact_dict)
 
 

@@ -32,8 +32,8 @@ You will not have access to many built-ins, including: eval, exec, compile, inpu
 The Python global scope is pre-populated with the following imports: numpy as np, scipy. \
 """
 
-    # initial_program_path = Path("src/examples/circle_packing/initial_program.py")
-    initial_program_path = Path("src/examples/circle_packing/example_program.py")
+    initial_program_path = Path("src/examples/circle_packing/initial_program.py")
+    # initial_program_path = Path("src/examples/circle_packing/example_program.py")
     initial_program_content = initial_program_path.read_text()
 
     program_evaluator_cfg = GoogleCloudEvaluatorConfig(
@@ -41,8 +41,8 @@ The Python global scope is pre-populated with the following imports: numpy as np
         region="europe-west2",
         project_id="alfred-evolve",
         image="gcr.io/alfred-evolve/circle-packing",
-        cpu_limit="2",
-        memory_limit="1Gi",
+        cpu_limit="4",
+        memory_limit="2Gi",
         timeout=eval_timeout,
         n_eval_runs=n_eval_runs,
     )
@@ -58,7 +58,7 @@ The Python global scope is pre-populated with the following imports: numpy as np
         initial_program_content, program_evaluator_cfg
     )
 
-    n_islands = 3
+    n_islands = 8
 
     cfg = AlfredEvolveConfig(
         n=n_islands * 200,
@@ -105,11 +105,11 @@ The Python global scope is pre-populated with the following imports: numpy as np
                         strategy=SampleStrategy.RAND,
                     ),
                 ],
-                population_size=50,
+                population_size=100,
                 score_key="SCORE",
                 migration_k=1,
                 migration_frequency=25,
-                max_parallel_tasks=2,
+                max_parallel_tasks=3,
                 initial_program_scores=initial_program_scores,
                 initial_program_artifacts=initial_program_artifacts,
             )

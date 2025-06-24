@@ -1,5 +1,11 @@
+import time
+
 import google.cloud.logging
-from google.api_core.exceptions import AlreadyExists
+from google.api_core.exceptions import (
+    AlreadyExists,
+    FailedPrecondition,
+    ResourceExhausted,
+)
 from google.cloud import run_v2
 from google.protobuf.duration_pb2 import Duration
 
@@ -82,7 +88,9 @@ def run_job(job_name: str, env_vars: dict[str, str], timeout: int) -> str:
                     ],
                 ),
             ],
-            timeout=Duration(seconds=timeout * 2),  # Give some buffer for execution startup
+            timeout=Duration(
+                seconds=timeout * 2
+            ),  # Give some buffer for execution startup
         ),
     )
     run_job_operation = jobs_client.run_job(run_job_request)
@@ -113,5 +121,34 @@ def get_result(exec_name: str) -> str:
 def delete_job(job_name: str):
     jobs_client = run_v2.JobsClient()
     delete_job_request = run_v2.DeleteJobRequest(name=job_name)
-    jobs_client.delete_job(delete_job_request)
+    jobs_client.delete_job(delete_job_request, timeout=10)
     logger.info(f"Deleted job: {job_name}")
+
+
+def get_running_executions(job_name: str) -> list[str]:
+    exec_client = run_v2.ExecutionsClient()
+    list_executions_request = run_v2.ListExecutionsRequest(parent=job_name)
+    exec_pager = exec_client.list_executions(list_executions_request)
+    exec_names = [
+        getattr(exec_item, "name")
+        for exec_item in exec_pager
+        if getattr(exec_item, "completion_time") is not None
+    ]
+    return exec_names
+
+
+def stop_running_executions(job_name: str):
+    exec_client = run_v2.ExecutionsClient()
+    exec_names = get_running_executions(job_name)
+    for exec_name in exec_names:
+        stop_request = run_v2.CancelExecutionRequest(name=exec_name)
+        try:
+            logger.info(f"Stopping execution: {exec_name}")
+            exec_client.cancel_execution(stop_request, timeout=10)
+        except FailedPrecondition:
+            pass
+        except ResourceExhausted as e:
+            logger.warning(e)
+            logger.info("Continuing after 60 seconds...")
+            time.sleep(60)
+            stop_running_executions(job_name)
