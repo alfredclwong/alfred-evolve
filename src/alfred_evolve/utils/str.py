@@ -14,17 +14,17 @@ def parse_json(json_string: str) -> dict[str, str]:
         ) from e
 
 
-def extract_tagged_text(llm_output: str, tag: str) -> str:
+def extract_tagged_text(text: str, tag: str) -> str:
     start = f"<{tag}>"
     end = f"</{tag}>"
-    if start not in llm_output or end not in llm_output:
+    if start not in text or end not in text:
         raise ValueError(
-            f"LLM output does not contain expected tags {start} and {end}:\n{llm_output}"
+            f"Text does not contain expected tags {start} and {end}:\n{text}"
         )
-    start_index = llm_output.index(start) + len(start)
-    end_index = llm_output.index(end)
-    text = llm_output[start_index:end_index]
-    return text
+    start_index = text.index(start) + len(start)
+    end_index = text.index(end)
+    tagged_text = text[start_index:end_index]
+    return tagged_text.strip()
 
 
 def apply_diff_search_replace(program_content: str, diff_content: str) -> str:

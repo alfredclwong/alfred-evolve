@@ -6,6 +6,7 @@ from typing import Optional
 
 from alfred_evolve.database import Database
 from alfred_evolve.models.data_models import Program
+from alfred_evolve.pipeline.evaluate import ProgramEvaluatorConfig, evaluate_program
 from alfred_evolve.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -32,8 +33,6 @@ class SampleConfig:
 @dataclass(frozen=True)
 class IslandConfig:
     initial_program_content: str
-    initial_program_scores: dict[str, float]
-    initial_program_artifacts: dict[str, str]
     parent_sample_config: SampleConfig
     inspiration_sample_configs: list[SampleConfig]
     population_size: int
@@ -41,10 +40,18 @@ class IslandConfig:
     migration_k: int
     migration_frequency: int
     max_parallel_tasks: int
+    initial_program_scores: Optional[dict[str, float]] = None
+    initial_program_artifacts: Optional[dict[str, str]] = None
 
 
 class ProgramIsland:
-    def __init__(self, island_id: int, db: Database, cfg: IslandConfig):
+    def __init__(
+        self,
+        island_id: int,
+        db: Database,
+        cfg: IslandConfig,
+        program_evaluator_cfg: Optional[ProgramEvaluatorConfig] = None,
+    ):
         self.island_id = island_id
         self.db = db
         self.cfg = cfg
@@ -53,6 +60,16 @@ class ProgramIsland:
             logger.info(
                 f"Island {self.island_id} is empty. Initializing with an initial program."
             )
+            if cfg.initial_program_scores is not None and cfg.initial_program_artifacts is not None:
+                initial_program_scores = cfg.initial_program_scores
+                initial_program_artifacts = cfg.initial_program_artifacts
+            elif program_evaluator_cfg is not None:
+                initial_program_scores, initial_program_artifacts = evaluate_program(
+                    cfg.initial_program_content, program_evaluator_cfg
+                )
+            else:
+                initial_program_scores = None
+                initial_program_artifacts = None
             initial_program = Program(
                 id=None,
                 island_id=self.island_id,
@@ -60,8 +77,8 @@ class ProgramIsland:
                 content=self.cfg.initial_program_content,
                 reasoning="Initial program",
                 parent_id=None,
-                scores=self.cfg.initial_program_scores,
-                artifacts=self.cfg.initial_program_artifacts,
+                scores=initial_program_scores,
+                artifacts=initial_program_artifacts,
             )
             self.add_program(initial_program)
 
@@ -100,7 +117,7 @@ class ProgramIsland:
             )
 
     def sample(self) -> tuple[Program, list[Program]]:
-        """ Sample step called at the beginning of each evolution loop.
+        """Sample step called at the beginning of each evolution loop.
 
         The parent is sampled based on the parent_sample_config, and inspirations are sampled
         based on the inspiration_sample_configs. The parent and inspirations are guaranteed to be
@@ -129,7 +146,9 @@ class ProgramIsland:
             )
         )
 
-    def _sample_programs(self, sample_config: SampleConfig, score_key: Optional[str] = None) -> list[Program]:
+    def _sample_programs(
+        self, sample_config: SampleConfig, score_key: Optional[str] = None
+    ) -> list[Program]:
         if score_key is None:
             score_key = self.cfg.score_key
         if sample_config.scope == SampleScope.ISLAND:
@@ -145,9 +164,7 @@ class ProgramIsland:
                 )[: sample_config.n]
         elif sample_config.scope == SampleScope.GLOBAL:
             if sample_config.strategy == SampleStrategy.BEST:
-                return self.db.get_topk_programs(
-                    k=sample_config.n, score_key=score_key
-                )
+                return self.db.get_topk_programs(k=sample_config.n, score_key=score_key)
             elif sample_config.strategy == SampleStrategy.RAND:
                 return self.db.get_random_programs(
                     n=sample_config.n, island_id=self.island_id

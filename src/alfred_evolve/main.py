@@ -3,7 +3,11 @@ from pathlib import Path
 from alfred_evolve.evolve import AlfredEvolve, AlfredEvolveConfig
 from alfred_evolve.island import IslandConfig, SampleConfig, SampleScope, SampleStrategy
 from alfred_evolve.pipeline.build import PromptBuilderConfig
-from alfred_evolve.pipeline.evaluate import ProgramEvaluatorConfig, evaluate_program
+from alfred_evolve.pipeline.evaluate import (
+    DockerConfig,
+    GoogleCloudEvaluatorConfig,
+    evaluate_program,
+)
 from alfred_evolve.pipeline.generate import LLMConfig
 from alfred_evolve.pipeline.pipeline import PipelineConfig
 from alfred_evolve.prompt_template import EPILOGUE, PREMABLE, VARIATIONS
@@ -24,38 +28,35 @@ The score will be the sum of the radii of all circles, which you should maximise
 Invalid packings, where circles overlap or extend beyond the unit square, will score 0. \
 Functions which take more than {eval_timeout} seconds to run will time out and score 0. \
 The code for checking overlaps and bounds works with a numerical tolerance of 1e-9. \
-The Python environment has the following libraries available: numpy, scipy.\
+You will not have access to many built-ins, including: eval, exec, compile, input, print, open. \
+The Python global scope is pre-populated with the following imports: numpy as np, scipy. \
 """
 
-    initial_program_path = Path("src/examples/circle_packing/initial_program.py")
-    # initial_program_path = Path("src/examples/circle_packing/example_program.py")
+    # initial_program_path = Path("src/examples/circle_packing/initial_program.py")
+    initial_program_path = Path("src/examples/circle_packing/example_program.py")
     initial_program_content = initial_program_path.read_text()
 
-    program_evaluator_cfg = ProgramEvaluatorConfig(
-        base_name="circle_packing",
-        image="circle-packing:latest",
-        eval_file_path=Path("src/examples/circle_packing/eval.py"),
-        cpu_limit="1",
-        memory_limit="1g",
+    program_evaluator_cfg = GoogleCloudEvaluatorConfig(
+        base_name="circle-packing-eval",
+        region="europe-west2",
+        project_id="alfred-evolve",
+        image="gcr.io/alfred-evolve/circle-packing",
+        cpu_limit="2",
+        memory_limit="1Gi",
         timeout=eval_timeout,
         n_eval_runs=n_eval_runs,
     )
-    # initial_program_scores, initial_program_artifacts = evaluate_program(
-    #     initial_program_content, program_evaluator_cfg
+    # program_evaluator_cfg = DockerConfig(
+    #     base_name="circle_packing",
+    #     image="gcr.io/alfred-evolve/circle-packing:latest",
+    #     cpu_limit="1",
+    #     memory_limit="1g",
+    #     timeout=eval_timeout,
+    #     n_eval_runs=n_eval_runs,
     # )
-    initial_program_scores = {
-        "INVALID_CODE_CHECK": 0.0,
-        "TIMEOUT_CHECK": 0.0,
-        "INVALID_TYPE_CHECK": 0.0,
-        "INVALID_LENGTH_CHECK": 0.0,
-        "INVALID_CIRCLE_CHECK": 0.0,
-        "OUT_OF_BOUNDS_CHECK": 0.0,
-        "OVERLAP_CHECK": 0.0,
-        "VALID_CHECK": 0.0,
-        "SCORE": 0.0,
-        "MAX_SCORE": 0.0,
-    }
-    initial_program_artifacts = {}
+    initial_program_scores, initial_program_artifacts = evaluate_program(
+        initial_program_content, program_evaluator_cfg
+    )
 
     n_islands = 3
 
@@ -82,8 +83,6 @@ The Python environment has the following libraries available: numpy, scipy.\
         island_cfgs=[
             IslandConfig(
                 initial_program_content=initial_program_content,
-                initial_program_scores=initial_program_scores,
-                initial_program_artifacts=initial_program_artifacts,
                 parent_sample_config=SampleConfig(
                     n=1,
                     scope=SampleScope.ISLAND,
@@ -111,6 +110,8 @@ The Python environment has the following libraries available: numpy, scipy.\
                 migration_k=1,
                 migration_frequency=25,
                 max_parallel_tasks=2,
+                initial_program_scores=initial_program_scores,
+                initial_program_artifacts=initial_program_artifacts,
             )
             for _ in range(n_islands)
         ],

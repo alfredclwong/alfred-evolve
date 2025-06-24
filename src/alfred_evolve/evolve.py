@@ -2,7 +2,6 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import ray
 
@@ -12,8 +11,10 @@ from alfred_evolve.island import (
     ProgramIsland,
 )
 from alfred_evolve.models.data_models import Program
+from alfred_evolve.pipeline.evaluate import GoogleCloudEvaluatorConfig
 from alfred_evolve.pipeline.pipeline import PipelineConfig
 from alfred_evolve.ray.tasks import run_pipeline_task
+from alfred_evolve.utils.gcp import delete_job, get_job_name
 from alfred_evolve.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -35,8 +36,9 @@ class AlfredEvolve:
 
         self.db = Database(cfg.db_url)
         self.islands = [
-            # ProgramIslandActor.remote(i, self.db, island_cfg)
-            ProgramIsland(i, self.db, island_cfg)
+            ProgramIsland(
+                i, self.db, island_cfg, cfg.pipeline_cfg.program_evaluator_cfg
+            )
             for i, island_cfg in enumerate(cfg.island_cfgs)
         ]
         self.n_islands = len(self.islands)
@@ -98,7 +100,7 @@ class AlfredEvolve:
                 result: Program | Exception = ray.get(future)
                 if isinstance(result, Exception):
                     logger.warning(f"Task {task_id} on island {island_id} failed")
-                    logger.debug(f"Error: {result}")
+                    logger.error(f"Error: {result}")
                 elif isinstance(result, Program):
                     self.islands[island_id].add_program(result)  # TODO batch insert
 
@@ -140,3 +142,15 @@ class AlfredEvolve:
     @property
     def n_running_tasks(self):
         return sum(len(tasks) for tasks in self.island_tasks.values())
+
+    def __del__(self):
+        evaluator_cfg = self.cfg.pipeline_cfg.program_evaluator_cfg
+        if isinstance(evaluator_cfg, GoogleCloudEvaluatorConfig):
+            job_name = get_job_name(
+                evaluator_cfg.project_id,
+                evaluator_cfg.region,
+                evaluator_cfg.base_name,
+                evaluator_cfg.cpu_limit,
+                evaluator_cfg.memory_limit,
+            )
+            delete_job(job_name)

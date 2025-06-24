@@ -2,14 +2,17 @@
 # Choose circle (c, r) packing within a unit square that maximises the sum
 # of the radii of the circles, while ensuring that no two circles overlap
 
-import argparse
+import builtins
 import json
+import os
 import signal
-import sys
 from enum import Enum, auto
-from pathlib import Path
+from typing import Callable, TypeVar
 
 import numpy as np
+import scipy
+
+T = TypeVar("T")
 
 
 class Reason(Enum):
@@ -69,19 +72,6 @@ def score_packing(packing: np.ndarray) -> float:
     return packing[:, 2].sum()
 
 
-def init_parser():
-    parser = argparse.ArgumentParser(description="Evaluate circle packing solutions.")
-    parser.add_argument("-p", "--program", type=str, required=True, help="Program path")
-    parser.add_argument(
-        "-t",
-        "--timeout",
-        type=int,
-        required=True,
-        help="Timeout in seconds for the packing function",
-    )
-    return parser
-
-
 def print_score(score: float, reason: Reason):
     # Cascade evaluation: if the program is invalid for an earlier reason, all subsequent checks are scored as 0.
     failed = False
@@ -91,16 +81,16 @@ def print_score(score: float, reason: Reason):
             failed = True
         score_dict[f"{r.name}_CHECK"] = 0.0 if failed else 1.0
     score_dict["SCORE"] = score
-    score_str = json.dumps(score_dict, indent=2)
+    score_str = json.dumps(score_dict, indent=None)
     print(f"<SCORE>{score_str}</SCORE>")
 
 
 def print_artifacts(artifact_dict):
-    artifact_str = json.dumps(artifact_dict, indent=2)
+    artifact_str = json.dumps(artifact_dict, indent=None)
     print(f"<ARTIFACT>{artifact_str}</ARTIFACT>")
 
 
-def run_with_timeout(func, timeout):
+def run_with_timeout(func: Callable[[], T], timeout) -> T:
     def timeout_handler(signum, frame):
         raise TimeoutError("Execution time exceeded the 5-minute limit.")
 
@@ -114,22 +104,74 @@ def run_with_timeout(func, timeout):
         signal.alarm(0)  # Disable the alarm after execution
 
 
+def _exec_safe(program_content: str):
+    unsafe_builtins = [
+        "open",  # file access
+        "input",  # can hang execution
+        "eval",  # arbitrary code execution
+        "exec",  # executes arbitrary code
+        "compile",  # compiles code into executable
+        "globals",  # exposes global namespace
+        "locals",  # can be used to inspect locals
+        "__import__",  # access arbitrary modules (e.g., os, sys)
+        "vars",  # access variable mappings
+        "dir",  # introspection
+        "getattr",  # dynamic access to object properties
+        "setattr",  # can mutate state
+        "delattr",  # can remove properties
+        "super",  # class introspection
+        "help",  # introspection
+        "property",  # can run arbitrary code
+        "classmethod",  # can define dynamic class behavior
+        "staticmethod",
+        "memoryview",  # buffer access
+        "bytearray",  # mutable binary data
+        "bytes",  # binary data
+        "globals",  # access global scope
+        "object",  # base class, access to dunder methods
+        "type",  # can dynamically create classes
+        "print",
+    ]
+    safe_builtins = {
+        name: getattr(builtins, name)
+        for name in dir(builtins)
+        if name not in unsafe_builtins and not name.startswith("__")
+    }
+    safe_globals = {
+        "__builtins__": safe_builtins,
+        "np": np,
+        "scipy": scipy,
+    }
+    try:
+        exec(program_content, safe_globals)
+        return safe_globals
+    except Exception as e:
+        raise RuntimeError(f"Error executing program: {e}")
+
+
 def main():
-    parser = init_parser()
-    args = parser.parse_args()
-    program_path = Path(args.program)
-    timeout = args.timeout
+    timeout = int(os.environ.get("TIME_LIMIT", 300))
+    program_content = os.environ.get("PROGRAM_CONTENT", "")
+    safe_globals = _exec_safe(program_content)
+    pack_26 = safe_globals.get("pack_26")
+    if not callable(pack_26):
+        print_score(0.0, Reason.INVALID_CODE)
+        print_artifacts(
+            {
+                "error": "pack_26 is not defined or not callable",
+                "program_content": program_content,
+            }
+        )
+        return
 
     score = 0.0
     reason = Reason.INVALID_CODE
     artifact_dict = {}
 
-    # Import the pack_26 function from the provided program
-    sys.path.insert(0, str(program_path.parent))
-    module_name = program_path.stem
     try:
-        module = __import__(module_name)
-        packing = run_with_timeout(module.pack_26, timeout)
+        packing = run_with_timeout(pack_26, timeout)
+        if not isinstance(packing, np.ndarray):
+            raise TypeError("pack_26 must return a numpy array")
         artifact_dict["packing"] = packing.tolist()
         valid, reason = is_valid(packing)
         if valid:
@@ -138,7 +180,7 @@ def main():
         reason = Reason.TIMEOUT
     except Exception as e:
         artifact_dict["error"] = str(e)
-        artifact_dict["program_content"] = program_path.read_text()
+        artifact_dict["program_content"] = program_content
         reason = Reason.INVALID_CODE
     finally:
         print_score(score, reason)

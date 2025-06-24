@@ -1,6 +1,3 @@
-import numpy as np
-from scipy.optimize import minimize, Bounds, NonlinearConstraint
-
 def pack_26() -> np.ndarray:
     num_circles = 26
 
@@ -13,7 +10,7 @@ def pack_26() -> np.ndarray:
     lower_bounds_base = np.tile([0.0, 0.0, 1e-9], num_circles) # min radius 1e-9
     upper_bounds_base = np.tile([1.0, 1.0, 0.5], num_circles) # max radius can't exceed 0.5
 
-    bounds = Bounds(lower_bounds_base, upper_bounds_base)
+    bounds = scipy.optimize.Bounds(lower_bounds_base, upper_bounds_base)
 
     # Objective function: Maximize sum of radii => Minimize negative sum of radii
     def objective(params):
@@ -45,7 +42,7 @@ def pack_26() -> np.ndarray:
 
         return np.concatenate([boundary_constraints, overlap_constraints])
 
-    nonlinear_constraints = NonlinearConstraint(constraints_func, 0, np.inf)
+    nonlinear_constraints = scipy.optimize.NonlinearConstraint(constraints_func, 0, np.inf)
 
     best_score = -np.inf
     best_packing = None
@@ -109,7 +106,7 @@ def pack_26() -> np.ndarray:
         # Ensure initial_params are within the overall bounds
         initial_params = np.clip(initial_params, lower_bounds_base, upper_bounds_base)
 
-        result = minimize(objective, initial_params, 
+        result = scipy.optimize.minimize(objective, initial_params, 
                           method='SLSQP', # SLSQP is generally good for this type of problem
                           bounds=bounds, 
                           constraints=[nonlinear_constraints],
