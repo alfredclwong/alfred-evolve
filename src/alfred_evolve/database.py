@@ -13,6 +13,37 @@ from alfred_evolve.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
+def program_to_model(program: Program) -> ProgramModel:
+    return ProgramModel(
+        id=program.id,
+        island_id=program.island_id,
+        generation=program.generation,
+        content=program.content,
+        parent_id=program.parent_id,
+        prompt=program.prompt,
+        reasoning=program.reasoning,
+        diff=program.diff,
+        scores=program.scores,
+        artifacts=program.artifacts,
+    )
+
+
+def model_to_program(program_model: ProgramModel) -> Program:
+    return Program(
+        id=program_model.id,
+        island_id=program_model.island_id,
+        generation=program_model.generation,
+        content=program_model.content,
+        parent_id=program_model.parent_id,
+        inspired_by_ids=[p.id for p in program_model.inspired_by],
+        prompt=program_model.prompt,
+        reasoning=program_model.reasoning,
+        diff=program_model.diff,
+        scores=program_model.scores,
+        artifacts=program_model.artifacts,
+    )
+
+
 class Database:
     def __init__(self, db_url: str):
         self.db_url = db_url
@@ -40,7 +71,7 @@ class Database:
             with self.get_session() as session:
                 return self.add_program(program, session)
 
-        program_model = self._program_to_model(program)
+        program_model = program_to_model(program)
         session.add(program_model)
         session.flush()
 
@@ -77,7 +108,7 @@ class Database:
             logger.warning(f"Program with ID {program_id} not found.")
             return None
 
-        program = self._model_to_program(program_model)
+        program = model_to_program(program_model)
         logger.info(f"Retrieved program with ID {program.id}.")
         return program
 
@@ -102,7 +133,7 @@ class Database:
         if k is not None:
             query = query.limit(k)
         program_models = query.all()
-        programs = [self._model_to_program(pm) for pm in program_models]
+        programs = [model_to_program(pm) for pm in program_models]
         logger.info(
             f"Retrieved top {'all' if k is None else len(programs)} programs from island {island_id}."
             # f" Scores: {', '.join(str(p.scores.get(score_key, 0.0)) if p.scores else '0.0' for p in programs)}"
@@ -126,7 +157,7 @@ class Database:
             )
             n = len(program_models)
         selected_programs = random.sample(program_models, n)
-        programs = [self._model_to_program(pm) for pm in selected_programs]
+        programs = [model_to_program(pm) for pm in selected_programs]
         logger.info(f"Retrieved {n} random programs from island {island_id}.")
         return programs
 
@@ -147,38 +178,9 @@ class Database:
             )
             n = len(program_models)
         selected_programs = program_models[:n]
-        programs = [self._model_to_program(pm) for pm in selected_programs]
+        programs = [model_to_program(pm) for pm in selected_programs]
         logger.info(f"Retrieved {n} previous programs from island {island_id}.")
         return programs
-
-    def _program_to_model(self, program: Program) -> ProgramModel:
-        return ProgramModel(
-            id=program.id,
-            island_id=program.island_id,
-            generation=program.generation,
-            content=program.content,
-            parent_id=program.parent_id,
-            prompt=program.prompt,
-            reasoning=program.reasoning,
-            diff=program.diff,
-            scores=program.scores,
-            artifacts=program.artifacts,
-        )
-
-    def _model_to_program(self, program_model: ProgramModel) -> Program:
-        return Program(
-            id=program_model.id,
-            island_id=program_model.island_id,
-            generation=program_model.generation,
-            content=program_model.content,
-            parent_id=program_model.parent_id,
-            inspired_by_ids=[p.id for p in program_model.inspired_by],
-            prompt=program_model.prompt,
-            reasoning=program_model.reasoning,
-            diff=program_model.diff,
-            scores=program_model.scores,
-            artifacts=program_model.artifacts,
-        )
 
     def get_program_count(self, island_id: Optional[int] = None, session = None) -> int:
         if session is None:

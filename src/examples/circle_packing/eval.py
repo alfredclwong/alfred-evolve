@@ -160,7 +160,7 @@ def main():
     program_content = os.environ.get("PROGRAM_CONTENT", "")
 
     score = 0.0
-    time_remaining_frac = 0.0
+    time_remaining_frac = 1.0
     reason = Reason.INVALID_CODE
     artifact_dict = {}
 

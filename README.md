@@ -7,6 +7,8 @@ Achieved SOTA!
 
 ![sota](docs/sota.png)
 
+![sota_html](docs/sota.html.svg)
+
 Pipeline
 
 1. Sample database
