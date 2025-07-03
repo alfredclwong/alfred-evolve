@@ -1,13 +1,14 @@
 Achieved SOTA!
+
 - Previous: 2.634
 - AlphaEvolve: 2.63586275
 - OpenEvolve: 2.634292402141039 (with assistance)
 - Timo Berthold: 2.63591551 (FICO Xpress Solver)
 - Me: 2.635983066
 
-![sota](docs/sota.png)
-
-![sota_html](docs/sota.html.svg)
+<a href="https://alfredclwong.github.io/assets/html/sota.html">
+  <img src="docs/dashboard.png" width="800"/>
+</a>
 
 Pipeline
 
